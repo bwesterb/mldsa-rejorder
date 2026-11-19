@@ -40,10 +40,10 @@ rejected attempt, which check failed and at which coefficient. This note explain
 proof (Lean~4 + Mathlib, no \lean{sorry}, standard axioms only) about an attacker who sees
 \emph{more} than timing can realistically give: the outcome of every attempt separately, with the
 failing check and the exact failing coefficient. Even this view is statistically close to a
-distribution that does not depend on the secret: at most $2^{-239}$, $2^{-291}$, $2^{-380}$ in
+distribution that does not depend on the secret: at most $2^{-289}$, $2^{-418}$, $2^{-568}$ in
 total variation per attempt for ML-DSA-44/65/87, on average over the public matrix $A$. As a
-consequence, for every secret key, all but a $2^{-76}$ fraction of matrices (ML-DSA-44;
-$2^{-128}$ for ML-DSA-65, $2^{-217}$ for ML-DSA-87) give an attacker who observes $2^{35}$
+consequence, for every secret key, all but a $2^{-126}$ fraction of matrices (ML-DSA-44;
+$2^{-255}$ for ML-DSA-65, $2^{-405}$ for ML-DSA-87) give an attacker who observes $2^{35}$
 signatures this way an advantage of at most $2^{-128}$. These fractions are crude upper bounds.
 We state precisely what is proved, list the modelling assumptions, and sketch the ideas of the
 proof.
@@ -69,9 +69,9 @@ $2^{-128}$.}
 \toprule
  & leak per attempt (Thm.~\ref{thm:main}) & fraction of bad $A$ \\
 \midrule
-ML-DSA-44 & $2^{-239}$ & $\le 2^{-76}$ \\
-ML-DSA-65 & $2^{-291}$ & $\le 2^{-128}$ \\
-ML-DSA-87 & $2^{-380}$ & $\le 2^{-217}$ \\
+ML-DSA-44 & $2^{-289}$ & $\le 2^{-126}$ \\
+ML-DSA-65 & $2^{-418}$ & $\le 2^{-255}$ \\
+ML-DSA-87 & $2^{-568}$ & $\le 2^{-405}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -90,7 +90,7 @@ ML-DSA-87 & $2^{-380}$ & $\le 2^{-217}$ \\
         bounds one attempt. An attacker who saw \emph{every} attempt of a signature in full
         detail would be charged for every attempt, $\E[N]\cdot\varepsilon$ with $N$ the number of
         attempts ($\E[N]\approx4.3$, $5.1$, $3.9$). Charging $\E[N]$ instead would make each
-        fraction $2$--$3$ bits larger ($2^{-73}$, $2^{-125}$, $2^{-215}$).
+        fraction $2$--$3$ bits larger ($2^{-123}$, $2^{-252}$, $2^{-403}$).
   \item \textbf{These fractions are crude upper bounds.} Bad matrices are probably much rarer.
         Markov's inequality uses nothing but the average over $A$, which is the worst possible
         case for it: all the leak concentrated on a few matrices. The average is itself
@@ -99,7 +99,7 @@ ML-DSA-87 & $2^{-380}$ & $\le 2^{-217}$ \\
         information a timing attacker never sees: which coefficient failed.
   \item The trade-off is linear: a weaker advantage target $2^{-128+d}$ makes the fraction $2^d$
         times smaller. For example, for ML-DSA-44, advantage at most $2^{-64}$ holds for all but a
-        $2^{-140}$ fraction of $A$.
+        $2^{-190}$ fraction of $A$.
   \item Not covered: the later $ct_0$ and hint checks, and timing variation from other parts of
         signing. The hybrid
         argument over attempts and the random-oracle modelling of the challenge are standard but
@@ -218,9 +218,9 @@ $\|u\|_\infty,\|v\|_\infty\le\beta$,
 \[
   \E_A\bigl[\leak(A,u,v)\bigr] \le
   \begin{cases}
-    2^{-239} & \text{ML-DSA-44},\\
-    2^{-291} & \text{ML-DSA-65},\\
-    2^{-380} & \text{ML-DSA-87}.
+    2^{-289} & \text{ML-DSA-44},\\
+    2^{-418} & \text{ML-DSA-65},\\
+    2^{-568} & \text{ML-DSA-87}.
   \end{cases}
 \]
 \end{theorem}
@@ -286,7 +286,7 @@ shifts $(u_i,v_i)$ with weights $w_i\ge0$ of total weight $W=\sum_i w_i$, and ev
 For the headline of Section~\ref{sec:headline}: $2^{35}$ signatures, each charged as one
 attempt, with that attempt's weight spread uniformly over the challenges it could receive, so
 $W=2^{35}$; take $\eta=2^{-128}$. Then the fraction of bad $A$ is at most
-$2^{35+128}\varepsilon$, i.e.\ $2^{-76}$, $2^{-128}$, $2^{-217}$. Charging every attempt instead
+$2^{35+128}\varepsilon$, i.e.\ $2^{-126}$, $2^{-255}$, $2^{-405}$. Charging every attempt instead
 means giving attempt $i$ of a signature weight $\Pr[N\ge i]$, so $W=2^{35}\,\E[N]$.
 
 What is \emph{not} in Lean is the hybrid step from ``sum of leaks'' to ``attacker advantage over
@@ -565,7 +565,7 @@ for $y$ alone,
 Call slot $k$ \emph{degenerate} for the pair if the vectors $(\hat y_j(k))_j$ and
 $(\hat y'_j(k))_j$ in $\Zq^L$ are linearly dependent, and let $D(y,y')$ be the set of degenerate
 slots (\lean{degS}). By the slot conditions every orthogonal test vector has support inside $D$
-(\lean{jsupp\_sub\_degS}). Fix $\sigma^*=20$ and split the pairs:
+(\lean{jsupp\_sub\_degS}). Fix a threshold $\sigma^*$ (around $20$; see Step~5) and split the pairs:
 \begin{itemize}
   \item $|D|<\sigma^*$: keep the old per-pair bound, which now only involves test vectors of support
         smaller than $\sigma^*$;
@@ -589,9 +589,34 @@ here would cancel the gain. Altogether
 with $x=\min(t,e(t,\sigma))$ (\lean{moment\_T\_cap}). This replaces $3p_R^tQ(t)$ in $G_s$
 (\lean{Gt2} and \lean{sparseFailAvg\_\allowbreak module\_\allowbreak cap}). It helps where bad pairs carry many test
 vectors, which is exactly the large-$t$ regime, and lets $s$ grow from $41$ to $54$ for
-ML-DSA-44. For ML-DSA-87 it gives nothing: there the limit comes from $t\ge64$, where the
-smallest NTT support is $4$ slots with only about $q^2$ test vectors, so the uncapped bound is
-already below the cap.
+ML-DSA-44. For ML-DSA-87 it gives nothing on its own: there the limit comes from $t\ge64$, where
+the smallest NTT support is $4$ slots with only about $q^2$ test vectors, so the uncapped bound
+is already below the cap. The next refinement removes that limit.
+
+\paragraph{Refinement: actual zero runs instead of the worst case.}
+The count of test vectors above is a worst case over $T$. A row with $t_i$ coordinates of $T$ is
+only guaranteed a run of $\lfloor n/(t_i+1)\rfloor$ consecutive positions outside $T$, and this
+guarantee is attained only by very regular sets, such as $64$ positions spaced $4$ apart. Yet the
+bound charges it to all $\binom{m}{t}$ sets $T$ of size $t$. A typical $T$ has a much longer
+free run.
+
+So we use, for each row, its actual longest \emph{cyclic} free run $g_i$ (\lean{cgap}). Runs may
+wrap around because $\zeta_k^n=-1$ for all $k$, so the wrap only flips signs
+(\lean{dual\_row\_zero}). A row then contributes at most $q^{\min(t_i,\,|S|-g_i)}$ one-sided test
+vectors, and the square of that for pairs (\lean{card\_suppIn1\_le\_gap},
+\lean{card\_suppIn\_le\_xg}). Instead of $\binom{m}{t}$ times a worst case, the sum over $T$ is
+now grouped by the free runs of the rows. The number of $u$-subsets of an $n$-cycle whose free
+runs all have length at most $g$ is bounded through compositions, as coefficients of
+$(1+X+\dots+X^g)^{v}$ (\lean{card\_linSet}, \lean{card\_shortSet}). Summed over the $K$ rows, this
+becomes a $K$-th power of a polynomial (\lean{sum\_T\_prod}), which replaces the Jensen step
+via $e(t,\sigma)$. The capped split into three terms is unchanged (\lean{moment\_T\_gap},
+\lean{sparseFailAvg\_module\_gap}). For the kernel evaluation, the polynomial coefficients are
+packed into large integers (Kronecker substitution, \lean{GapEval}).
+
+This removes the overcounting that stopped $s$ from growing. A numerical check indicates that
+generic sets really do need about $n-t_i+1$ NTT slots, so further gains are available in
+principle. Proving them would need a classification of the exceptional, coset-like sets, which
+we have not done.
 
 %----------------------------------------------------------------------
 \subsection{Step 5: numerics}
@@ -601,18 +626,20 @@ With $\delta = 2^{-k}$, the final bound is
 $\E_A[\leak]\le(m+l)\bigl(2\binom{m}{s}p_R^s + 2^{1-k}\bigr)$, valid whenever $G_s\le 2^{-2k}$.
 Both conditions are rewritten as inequalities between natural numbers, using structurally recursive
 sums, and checked by kernel evaluation (\lean{decide +kernel}, not \lean{native\_decide};
-\lean{Gt\_le}, \lean{eps\_le}, \lean{leak\_avg\_module}; with the cap, \lean{Gt2\_le} and
-\lean{leak\_avg\_module\_cap}). ML-DSA-44 and ML-DSA-65 use the capped bound with $\sigma^*=20$;
-ML-DSA-87 uses the uncapped one.
+\lean{Gt3\_le}, \lean{leak\_avg\_module\_gap}). All three parameter sets use the zero-run bound
+with the cap. Two extra cut-offs keep the kernel cheap: $\sigma^*$ for the capped split, and
+$\sigma_c$, the NTT support size from which the trivial count $q^{|T|}$ is used. The earlier
+routes (\lean{leak\_avg\_module}, \lean{leak\_avg\_module\_cap}) are still in the file but
+unused.
 
 \begin{center}
-\begin{tabular}{lcccc}
+\begin{tabular}{lcccccc}
 \toprule
- & $s$ & $k$ & $p_R$ & bound on $\E_A[\leak]$ \\
+ & $\sigma^*$ & $\sigma_c$ & $s$ & $k$ & $p_R$ & bound on $\E_A[\leak]$ \\
 \midrule
-ML-DSA-44 & 54 & 254 & $8.2\cdot10^{-4}$ & $2^{-239}$ \\
-ML-DSA-65 & 68 & 304 & $7.5\cdot10^{-4}$ & $2^{-291}$ \\
-ML-DSA-87 & 79 & 393 & $4.6\cdot10^{-4}$ & $2^{-380}$ \\
+ML-DSA-44 & 22 & 35 & 62  & 307 & $8.2\cdot10^{-4}$ & $2^{-289}$ \\
+ML-DSA-65 & 19 & 36 & 88  & 433 & $7.5\cdot10^{-4}$ & $2^{-418}$ \\
+ML-DSA-87 & 16 & 32 & 108 & 581 & $4.6\cdot10^{-4}$ & $2^{-568}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -621,7 +648,7 @@ large $t$ the uncertainty principle allows many test vectors with small NTT supp
 $s$ in the table balance the two. They were found by an exact search over the two integer
 inequalities, taking for each $s$ the largest $k$ allowed by $G_s\le2^{-2k}$ and then the largest
 final exponent. They are tight: increasing $k$ or the final exponent by one breaks the
-corresponding inequality. For ML-DSA-65 every $s$ from $68$ to $79$ reaches $2^{-291}$; the
+corresponding inequality. For ML-DSA-87 every $s$ from $108$ to $112$ reaches $2^{-568}$; the
 table uses the smallest.
 
 %======================================================================
@@ -644,13 +671,17 @@ Section & Content \\
 \lean{ModuleCount}, \lean{Profile} & counting test vectors by support; $Q(t)$ \\
 \lean{ModuleMain} & Cauchy--Schwarz/Jensen; \lean{sparseFailAvg\_module}(\lean{\_cap}) \\
 \lean{Negacyclic} & $\Zq[X]/(X^n+1)$ satisfies \lean{IsNTTMul}; ML-DSA roots \\
-\lean{Numeric}, \lean{MLDSA} & evaluation of the bound; Theorem~\ref{thm:main} \\
+\lean{Numeric} & evaluation of the earlier bounds \\
+\lean{GapCount}, \lean{GapComb} & cyclic free runs; counting sets by free runs \\
+\lean{GapEval}, \lean{GapSum} & Kronecker substitution; regrouping the sum over $T$ \\
+\lean{GapMain}, \lean{GapNumeric} & zero-run second moment; its evaluation \\
+\lean{MLDSA} & Theorem~\ref{thm:main} \\
 \lean{Headline} & many attempts, few bad matrices (Theorem~\ref{thm:headline}) \\
 \bottomrule
 \end{tabular}
 \end{center}
 
-The file builds with Lean~4.34 and a recent Mathlib in about 35 seconds.
+The file builds with Lean~4.34 and a recent Mathlib in about 26 seconds.
 \lean{\#print axioms} reports only \lean{propext}, \lean{Classical.choice} and \lean{Quot.sound}
 for \lean{indist}, the three main theorems and the three \lean{bad\_frac} instances.
 
