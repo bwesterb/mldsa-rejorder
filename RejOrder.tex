@@ -96,7 +96,9 @@ ML-DSA-87 & $2^{-568}$ & $\le 2^{-405}$ \\
         case for it: all the leak concentrated on a few matrices. The average is itself
         overestimated: it is dominated by the Bonferroni truncation term, which is an artifact of
         the method rather than leakage (Section~\ref{sec:proof}). And the bound charges for
-        information a timing attacker never sees: which coefficient failed.
+        information a timing attacker never sees: which coefficient failed. Numerical experiments put
+        the true per-attempt deviation for a random $A$ thousands of bits below the proved bound
+        (Section~\ref{sec:tight}).
   \item The trade-off is linear: a weaker advantage target $2^{-128+d}$ makes the fraction $2^d$
         times smaller. For example, for ML-DSA-44, advantage at most $2^{-64}$ holds for all but a
         $2^{-190}$ fraction of $A$.
@@ -650,6 +652,85 @@ inequalities, taking for each $s$ the largest $k$ allowed by $G_s\le2^{-2k}$ and
 final exponent. They are tight: increasing $k$ or the final exponent by one breaks the
 corresponding inequality. For ML-DSA-87 every $s$ from $108$ to $112$ reaches $2^{-568}$; the
 table uses the smallest.
+
+%======================================================================
+\section{How tight is this? (numerical experiments)}\label{sec:tight}
+%======================================================================
+
+The proved bounds are limited by the method, not by actual leakage. This section collects
+evidence for that. Nothing here is formalised; the experiments are numerical, and the
+extrapolations are labelled as such.
+
+\paragraph{Two easy facts.}
+\begin{itemize}
+  \item The leak is never exactly zero. $\Pr_y[I(y)=0]$ is a fraction with denominator
+        $(2\gamma_1)^l$, a power of two, while $p_R$ has the odd prime $q$ in its denominator. So
+        $\leak(A,u,v)\ge 1/(q(2\gamma_1)^l)\approx2^{-18455}$ for ML-DSA-44. This is distance to
+        the reference, not dependence on the secret.
+  \item Some matrices really leak, so averaging over $A$ is unavoidable. If the first row of $A$
+        is a constant polynomial $c$ and zero elsewhere, then $w_0 = c\,y_0$, and for a suitable
+        $c$ whether coordinate $0$ fails depends visibly on $v_0$, at a level of about
+        $1/(2\gamma_1)$. Such matrices make up only about $q^{-1023}$ of all $A$.
+\end{itemize}
+
+\paragraph{One coordinate, computed exactly.}
+For one output coordinate $w_0=\sum_c M_{0c}y_c$ and a uniformly random row of $M$, the shift
+lemma makes ``coordinate $0$ fails, given $v_0$'' a translate of a fixed set. Its dependence on
+$v_0$ is a Fourier sum over the $q-1$ nonzero frequencies $\xi$, with
+\[
+  \hat P(\xi)=\prod_{c}\varphi(M_{0c}\,\xi),\qquad
+  |\varphi(x)|=\frac{|\sin(2\pi\gamma_1x/q)|}{2\gamma_1|\sin(\pi x/q)|}.
+\]
+We evaluated this sum exactly, in $\log_2$, for all $\xi$. The method was checked against brute
+force on small instances.
+
+\begin{center}
+\begin{tabular}{lccc}
+\toprule
+ & deviation of one coordinate & proved per-attempt bound & gap \\
+\midrule
+ML-DSA-44 & $\approx2^{-18100}$ & $2^{-289}$ & ${\approx}17800$ bits \\
+ML-DSA-65 & $\approx2^{-25250}$ & $2^{-418}$ & ${\approx}24800$ bits \\
+ML-DSA-87 & $\approx2^{-35400}$ & $2^{-568}$ & ${\approx}34800$ bits \\
+\bottomrule
+\end{tabular}
+\end{center}
+(Several random rows per parameter set; these are typical values, varying by tens of bits.) The
+scale is easy to explain. Since $x\mapsto M_{0c}x$ permutes $\Zq$, each factor $\log_2|\varphi|$
+averages exactly $-\log_2(2\gamma_1)$, so a typical frequency gives $2^{-18\cdot1024}$ for
+ML-DSA-44. The best of the roughly $2^{22}$ frequencies gains about $300$ bits through ordinary
+fluctuations, not because a few factors are unusually large.
+
+\paragraph{Pairs of coordinates, sampled.}
+A pair has about $q^2\approx2^{46}$ frequencies, too many to scan; that would take about five
+years on 24 cores. Instead, for ML-DSA-44 we sampled $4\cdot10^9$ random frequency pairs and
+scanned about $6000$ lines $\xi_2=\lambda\xi_1$ exactly. Findings:
+\begin{itemize}
+  \item At a fixed frequency the terms are exactly independent when $A$ is uniform. The sampled
+        distribution of $\log_2|\hat P|$ matches the resulting model to sampling precision, in
+        moments and in the tail out to about $6\sigma$.
+  \item The same extrapolation applied to single lines, whose exact maxima we know, predicts
+        them correctly: on average to within $0.2$ bits, with the right spread.
+  \item The extrapolated maximum for a pair is about $2^{-17979\pm10}$, about $150$ bits larger
+        than for one coordinate.
+  \item No structured direction stands out: not the axes, small $\lambda$, simple fractions, or,
+        for two adjacent coefficients of one polynomial, the directions singled out by the
+        negacyclic structure. One sampled pair showed a mild excess in the extreme tail
+        ($p\approx0.04$), worth at most $5$--$10$ bits if real.
+\end{itemize}
+
+\paragraph{Larger joint events.}
+Under the same model, the joint events that matter for the proof, with all of $T$ failing for
+$|T|$ up to the Bonferroni order of about $30$--$50$, are still estimated near $2^{-16000}$ for
+ML-DSA-44. Very large joint events are genuinely non-uniform: for ML-DSA-65 and 87, $m>l$, so
+some nonzero frequency gives exactly $1$. But these enter with weight about $p_R^{|T|}$, roughly
+$2^{-10|T|}$, so they do not change the picture.
+
+\paragraph{Conclusion.}
+The true per-attempt leak for a random $A$ is plausibly in the range $2^{-16000}$ to
+$2^{-18000}$ for ML-DSA-44, far below the proved $2^{-289}$, and the fractions of bad matrices
+in the headline are correspondingly pessimistic. Closing the gap with a proof would need a quite
+different technique.
 
 %======================================================================
 \section{Map of the Lean file}
