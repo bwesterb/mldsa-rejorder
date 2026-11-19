@@ -32,6 +32,13 @@
 \begin{document}
 \maketitle
 
+\begin{center}
+\fbox{\parbox{0.9\textwidth}{\small\textbf{Disclaimer.} This document, the Lean proof and the
+numerical experiments were produced mostly by Claude Opus~5.5 (Anthropic), under human
+direction. The Lean statements are machine-checked; everything else, including the prose and the
+experiments, has not been independently verified.}}
+\end{center}
+
 \begin{abstract}
 In the signing loop of circl's ML-DSA, the check $\|w_0 - c s_2\|_\infty < \gamma_2-\beta$
 (the ``$r_0$ check'') is done \emph{before} the check $\|z\|_\infty < \gamma_1 - \beta$, and both
