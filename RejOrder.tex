@@ -1,0 +1,657 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\Zq}{\mathbb{Z}_q}
+\newcommand{\Rq}{R_q}
+
+
+\newcommand{\E}{\mathop{\mathbb{E}}}
+\newcommand{\lowbits}{\operatorname{LowBits}}
+\newcommand{\leak}{\operatorname{leak}}
+\newcommand{\geom}{\operatorname{geom}}
+\newcommand{\dev}{\operatorname{dev}}
+\newcommand{\lean}[1]{\texttt{#1}}
+\renewcommand{\Pr}{\mathop{\mathrm{Pr}}}
+
+\title{The order of rejection checks in circl's ML-DSA\\
+\large A walk through the Lean proof \lean{RejOrder.lean}}
+\author{}\date{}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+In the signing loop of circl's ML-DSA, the check $\|w_0 - c s_2\|_\infty < \gamma_2-\beta$
+(the ``$r_0$ check'') is done \emph{before} the check $\|z\|_\infty < \gamma_1 - \beta$, and both
+checks exit early at the first offending coefficient. Timing can therefore reveal, for every
+rejected attempt, which check failed and at which coefficient. This note explains a machine-checked
+proof (Lean~4 + Mathlib, no \lean{sorry}, standard axioms only) about an attacker who sees
+\emph{more} than timing can realistically give: the outcome of every attempt separately, with the
+failing check and the exact failing coefficient. Even this view is statistically close to a
+distribution that does not depend on the secret: at most $2^{-239}$, $2^{-291}$, $2^{-380}$ in
+total variation per attempt for ML-DSA-44/65/87, on average over the public matrix $A$. As a
+consequence, for every secret key, all but a $2^{-76}$ fraction of matrices (ML-DSA-44;
+$2^{-128}$ for ML-DSA-65, $2^{-217}$ for ML-DSA-87) give an attacker who observes $2^{35}$
+signatures this way an advantage of at most $2^{-128}$. These fractions are crude upper bounds.
+We state precisely what is proved, list the modelling assumptions, and sketch the ideas of the
+proof.
+\end{abstract}
+
+\tableofcontents
+
+%======================================================================
+\section{The headline}\label{sec:headline}
+%======================================================================
+
+\begin{quote}
+\emph{Fix any ML-DSA secret key. For all public matrices $A$ except a small fraction, consider
+an attacker who, for each of $2^{35}$ signatures (a thousand per second for a year), observes a
+signing attempt in full detail: whether circl's $r_0$ check or $z$ check rejected it, and at
+exactly which coefficient. This is far more than a timing measurement reveals. The attacker's
+advantage in distinguishing these observations from secret-independent noise is at most
+$2^{-128}$.}
+\end{quote}
+
+\begin{center}
+\begin{tabular}{lcc}
+\toprule
+ & leak per attempt (Thm.~\ref{thm:main}) & fraction of bad $A$ \\
+\midrule
+ML-DSA-44 & $2^{-239}$ & $\le 2^{-76}$ \\
+ML-DSA-65 & $2^{-291}$ & $\le 2^{-128}$ \\
+ML-DSA-87 & $2^{-380}$ & $\le 2^{-217}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+  \item The per-attempt bound and the Markov step over $A$ are machine-checked
+        (\lean{leak\_mldsa*}, \lean{bad\_frac\_mldsa*}); the arithmetic is in
+        Section~\ref{sec:many}.
+  \item \textbf{Stronger than timing.} A timing attacker sees one number per signature, its total
+        signing time. Our attacker instead sees an attempt's outcome down to the failing
+        coefficient. We model one timing measurement as revealing at most one attempt in this much
+        detail.
+  \item \textbf{One attempt's worth per signature.} Accordingly, the fractions are
+        $2^{35}\cdot2^{128}\cdot\varepsilon$: each signature is charged the leak of a single
+        attempt. This is a modelling choice, not something we prove. Theorem~\ref{thm:main}
+        bounds one attempt. An attacker who saw \emph{every} attempt of a signature in full
+        detail would be charged for every attempt, $\E[N]\cdot\varepsilon$ with $N$ the number of
+        attempts ($\E[N]\approx4.3$, $5.1$, $3.9$). Charging $\E[N]$ instead would make each
+        fraction $2$--$3$ bits larger ($2^{-73}$, $2^{-125}$, $2^{-215}$).
+  \item \textbf{These fractions are crude upper bounds.} Bad matrices are probably much rarer.
+        Markov's inequality uses nothing but the average over $A$, which is the worst possible
+        case for it: all the leak concentrated on a few matrices. The average is itself
+        overestimated: it is dominated by the Bonferroni truncation term, which is an artifact of
+        the method rather than leakage (Section~\ref{sec:proof}). And the bound charges for
+        information a timing attacker never sees: which coefficient failed.
+  \item The trade-off is linear: a weaker advantage target $2^{-128+d}$ makes the fraction $2^d$
+        times smaller. For example, for ML-DSA-44, advantage at most $2^{-64}$ holds for all but a
+        $2^{-140}$ fraction of $A$.
+  \item Not covered: the later $ct_0$ and hint checks, and timing variation from other parts of
+        signing. The hybrid
+        argument over attempts and the random-oracle modelling of the challenge are standard but
+        not formalised. See Section~\ref{sec:assumptions}.
+\end{itemize}
+
+%======================================================================
+\section{Setting}
+%======================================================================
+
+\paragraph{What circl does.}
+One iteration of the rejection loop (\texttt{sign/mldsa/*/internal/dilithium.go}) is:
+\begin{enumerate}
+  \item sample $y \in \Rq^L$ with coefficients in $(-\gamma_1,\gamma_1]$;
+  \item $w = Ay$, $(w_1,w_0) = \mathrm{Decompose}(w)$, $\tilde c = H(\mu \,\|\, w_1)$, $c = \mathrm{SampleInBall}(\tilde c)$;
+  \item \textbf{$r_0$ check:} if $\|w_0 - cs_2\|_\infty \ge \gamma_2-\beta$, reject;
+  \item \textbf{$z$ check:} $z = y + cs_1$; if $\|z\|_\infty \ge \gamma_1-\beta$, reject;
+  \item further checks ($\|ct_0\|_\infty \ge \gamma_2$, hint weight $>\omega$), then output.
+\end{enumerate}
+FIPS~204 performs the $z$ check first. Both \texttt{Exceeds} routines exit at the first failing
+polynomial, and (in the generic code) at the first failing coefficient; the AVX2 code exits at the
+first failing block of 32 coefficients. So the timing of steps 3--4 reveals (at most) the index of
+the first failing coefficient of the first failing check.
+
+\paragraph{Why the order could matter.}
+The $z$ check alone is harmless: for every shift $u = cs_1$ with $\|u\|_\infty\le\beta$, each
+coordinate of $y+u$ lands outside $(-(\gamma_1-\beta), \gamma_1-\beta)$ with probability exactly
+$p_Z = (2\beta+1)/2\gamma_1$, independently, so the first failing index is \emph{exactly} geometric
+and independent of the secret. The $r_0$ check is different: its outcome depends on $v = cs_2$
+through $\lowbits(Ay)-v$, and the coordinates of $Ay$ are not independent of each other. If it is
+done first, its failure index is revealed for every $y$, not only for those that already passed the
+$z$ check. The question is whether that index carries information about $v$.
+
+%======================================================================
+\section{The model}
+%======================================================================
+
+Throughout, $m = Kn$ and $l = Ln$ with $n=256$, and vectors in $\Rq^L$, $\Rq^K$ are identified
+with $\Z^{l}$ or $\Zq^{l}$, $\Zq^m$ coefficient-wise, polynomial by polynomial (index
+$256\,i + s$ for coefficient $s$ of polynomial $i$). The challenge $c$ is \emph{fixed}; it enters only
+through the two shifts
+\[
+  u = cs_1 \in \Z^{l}, \qquad v = cs_2 \in \Z^{m}, \qquad \|u\|_\infty,\ \|v\|_\infty \le \beta,
+\]
+which are otherwise arbitrary (\lean{Bounded}). We need $\beta = \tau\eta$, which
+bounds $\|cs_i\|_\infty$ for every $c$ of weight $\tau$.
+
+\begin{definition}[Parameters, \lean{Params}]
+Naturals $q,\gamma_1,\gamma_2,\beta,b$ with $q = 2\gamma_2 b + 1$, $\beta<\gamma_1$,
+$\beta<\gamma_2$, $b>0$. (Here $b = (q-1)/2\gamma_2$ is the number of high-bit values.)
+\end{definition}
+
+\begin{center}
+\begin{tabular}{lcccccc}
+\toprule
+ & $(K,L)$ & $\gamma_1$ & $\gamma_2$ & $\beta$ & $b$ \\
+\midrule
+ML-DSA-44 & $(4,4)$ & $2^{17}$ & $95232$  & $78$  & $44$ \\
+ML-DSA-65 & $(6,5)$ & $2^{19}$ & $261888$ & $196$ & $16$ \\
+ML-DSA-87 & $(8,7)$ & $2^{19}$ & $261888$ & $120$ & $16$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+with $q = 8380417$ throughout.
+
+\begin{definition}[Model of one attempt]\label{def:model}
+\leavevmode
+\begin{itemize}
+  \item $\mathcal{B} = (-\gamma_1,\gamma_1]^{l} \subset \Z^l$; $y$ is uniform on $\mathcal{B}$ (\lean{box}).
+  \item $\lowbits:\Zq\to\Z$ is the low part of FIPS~204 Decompose with $\alpha = 2\gamma_2$,
+        including the corner case $r - r_0 = q-1 \Rightarrow r_0 \gets r_0 - 1$ (\lean{lowBits}).
+  \item $M \in \Zq^{m\times l}$ is the matrix of $A$; $w = M\,(y \bmod q)$.
+  \item Coordinate $i$ fails the $r_0$ check iff $|\lowbits(w_i) - v_i| \ge \gamma_2-\beta$;
+        coordinate $k$ fails the $z$ check iff $|y_k + u_k| \ge \gamma_1-\beta$.
+  \item $I(y)\in\{0,\dots,m-1\}\cup\{\bot\}$ and $J(y)\in\{0,\dots,l-1\}\cup\{\bot\}$ are the
+        least failing indices.
+  \item The \emph{view} is
+  \[
+    \mathrm{view}_{M,u,v}(y) =
+    \begin{cases}
+      \mathsf{rFail}(i) & \text{if } I(y) = i,\\
+      \mathsf{zFail}(j) & \text{if } I(y) = \bot,\ J(y)=j,\\
+      \mathsf{pass}(y+u) & \text{if } I(y)=J(y)=\bot.
+    \end{cases}
+  \]
+\end{itemize}
+\end{definition}
+
+\paragraph{Faithfulness to circl.}
+The circl code computes $w_0 - cs_2$ in $\Zq$ and compares its centred representative with
+$\gamma_2-\beta$. Since $|w_0|\le\gamma_2$ and $|v_i|\le\beta$, the integer $w_0-v_i$ is well
+inside $(-q/2,q/2)$, so this is exactly $|\lowbits(w_i)-v_i|$. The same holds for $z$. The
+coefficient ordering, the ranges of $y$, the parameters and the matrix $A$ as a block matrix of
+negacyclic multiplications all match. A coarser view (e.g.\ AVX2's block index) is a function of
+the modelled view and is therefore covered.
+
+\begin{definition}[Reference distribution and leak, \lean{leak}]
+Let $p_R = 1 - b\,(2(\gamma_2-\beta)-1)/q$ and $p_Z = (2\beta+1)/2\gamma_1$; these are the
+per-coordinate failure probabilities of the $r_0$ check for \emph{uniform} $w\in\Zq$ and of the
+$z$ check. Let $\geom_p(i) = (1-p)^i p$ and $\geom_p(\bot)=(1-p)^{N}$ for $N$ trials. Define
+\[
+  \leak(M,u,v) = \sum_{i<m} \Bigl|\Pr_y[\mathsf{rFail}(i)] - \geom_{p_R}(i)\Bigr|
+  + \sum_{j<l} \Bigl|\Pr_y[\mathsf{zFail}(j)] - \geom_{p_Z}(j)\,(1-p_R)^m\Bigr|.
+\]
+The reference values do not depend on $u$, $v$ or $M$.
+\end{definition}
+
+%======================================================================
+\section{The statements}
+%======================================================================
+
+\begin{theorem}[\lean{leak\_mldsa44}, \lean{leak\_mldsa65}, \lean{leak\_mldsa87}]\label{thm:main}
+Let $(q,\gamma_1,\gamma_2,\beta,b,K,L)$ be an ML-DSA parameter set, $\Rq = \Zq[X]/(X^{256}+1)$,
+and $A$ uniform in $\Rq^{K\times L}$. For every $u\in\Z^{Ln}$, $v\in\Z^{Kn}$ with
+$\|u\|_\infty,\|v\|_\infty\le\beta$,
+\[
+  \E_A\bigl[\leak(A,u,v)\bigr] \le
+  \begin{cases}
+    2^{-239} & \text{ML-DSA-44},\\
+    2^{-291} & \text{ML-DSA-65},\\
+    2^{-380} & \text{ML-DSA-87}.
+  \end{cases}
+\]
+\end{theorem}
+
+The accepted views are handled exactly:
+
+\begin{proposition}[\lean{view\_pass}]\label{prop:pass}
+For every $M$, bounded $u,v$ and $z\in\Z^l$,
+\[
+  \Pr_y[\mathrm{view}(y) = \mathsf{pass}(z)] =
+  \begin{cases}
+    (2\gamma_1)^{-l} & \text{if } \|z\|_\infty < \gamma_1-\beta \text{ and}\\
+       & \quad \forall i,\ |\lowbits\bigl((Mz - (Mu+v))_i\bigr)| < \gamma_2-\beta,\\
+    0 & \text{otherwise.}
+  \end{cases}
+\]
+In particular it depends on $(u,v)$ only through $Mu+v$, which for ML-DSA is $c\,t$ with
+$t = As_1+s_2$.
+\end{proposition}
+
+The proof uses the shift lemma (Lemma~3 of the Dilithium specification, \lean{lowBits\_shift}):
+for $|v|\le\beta$, $|\lowbits(w)-v| < \gamma_2-\beta \iff |\lowbits(w-v)|<\gamma_2-\beta$.
+
+Together these give the meaning of $\leak$:
+
+\begin{theorem}[\lean{indist}]\label{thm:indist}
+Fix $M$. Let $(u,v)$ and $(u',v')$ be bounded with $Mu+v = Mu'+v'$. Then for every test
+$D$ on views,
+\[
+  \Bigl|\Pr_y[D(\mathrm{view}_{M,u,v}(y))] - \Pr_y[D(\mathrm{view}_{M,u',v'}(y))]\Bigr|
+  \le \leak(M,u,v)+\leak(M,u',v').
+\]
+\end{theorem}
+
+\begin{proof}[Proof idea]
+Write both probabilities as sums over views. The $\mathsf{pass}$ terms are equal by
+Proposition~\ref{prop:pass}. Each $\mathsf{rFail}$/$\mathsf{zFail}$ term differs by at most its
+distance to the common reference value, summed over the two sides.
+\end{proof}
+
+\paragraph{How to read these.}
+Theorem~\ref{thm:main} says that the rejection part of the view of one attempt is, on average over
+$A$, within $\varepsilon$ (in total variation) of a fixed distribution that does not depend on the
+secret. The accepted part reveals $z$, which is in the signature anyway, with the exact
+distribution of Proposition~\ref{prop:pass}. Theorem~\ref{thm:indist} is a clean corollary but
+assumes the same $c\,t$ (the full $t$, not only $t_1$); the useful content is that $\leak$ is small.
+
+\subsection{Many signatures}\label{sec:many}
+
+An attacker watches many attempts. For fixed shifts, the views of independent attempts are
+within the \emph{sum} of the per-attempt leaks of a secret-independent reference (a standard
+hybrid argument). With random challenges the shifts are random, which we cover by weighting the
+attempts. Markov's inequality over $A$ then gives:
+
+\begin{theorem}[\lean{bad\_frac}, \lean{bad\_frac\_mldsa44/65/87}]\label{thm:headline}
+Let $\varepsilon$ be the bound of Theorem~\ref{thm:main}. For every finite family of bounded
+shifts $(u_i,v_i)$ with weights $w_i\ge0$ of total weight $W=\sum_i w_i$, and every $\eta>0$,
+\[
+  \Pr_A\Bigl[\textstyle\sum_i w_i\,\leak(A,u_i,v_i)\ \ge\ \eta\Bigr] \;\le\; \frac{W\varepsilon}{\eta}.
+\]
+\end{theorem}
+
+For the headline of Section~\ref{sec:headline}: $2^{35}$ signatures, each charged as one
+attempt, with that attempt's weight spread uniformly over the challenges it could receive, so
+$W=2^{35}$; take $\eta=2^{-128}$. Then the fraction of bad $A$ is at most
+$2^{35+128}\varepsilon$, i.e.\ $2^{-76}$, $2^{-128}$, $2^{-217}$. Charging every attempt instead
+means giving attempt $i$ of a signature weight $\Pr[N\ge i]$, so $W=2^{35}\,\E[N]$.
+
+What is \emph{not} in Lean is the hybrid step from ``sum of leaks'' to ``attacker advantage over
+many attempts'', and the random-oracle step that makes the challenges uniform and independent of
+$y$ (assumption A1 below). Both are standard. The bad set of matrices depends on the key.
+
+%======================================================================
+\section{Assumptions and gaps}\label{sec:assumptions}
+%======================================================================
+
+\begin{enumerate}\renewcommand{\labelenumi}{\textbf{A\arabic{enumi}.}}
+\item \textbf{Fixed challenge.} In circl, $c$ is derived from $H(\mu\,\|\,w_1)$ with
+  $w_1 = \mathrm{HighBits}(Ay)$, so $c$ depends on $y$. The model fixes $c$ and takes $y$ uniform.
+  This is justified in the random-oracle model: for a fresh query, $c$ is uniform and independent
+  of $y$, and since Theorem~\ref{thm:main} holds for \emph{every} bounded $(u,v)$, it also holds
+  averaged over $c$. Consequently, leaking $c$ (e.g.\ through \textsc{SampleInBall} timing) is
+  harmless for this argument; leaking anything about $w_1$ or $y$ beyond the view is not covered.
+\item \textbf{Uniform $y$ and $A$.} $y$ (from SHAKE-256) and $A$ (from \textsc{ExpandA}) are
+  modelled as uniform, and $A$ as independent of $(s_1,s_2)$.
+\item \textbf{Average over $A$.} The bound is on $\E_A[\leak]$, not for every $A$. Markov's
+  inequality turns it into a per-key statement; see Theorem~\ref{thm:headline}.
+\item \textbf{One attempt.} Theorem~\ref{thm:main} covers one attempt. Theorem~\ref{thm:headline}
+  bounds weighted sums of leaks over many attempts, but the hybrid argument that turns this sum
+  into a bound on the attacker's advantage is not formalised. The headline charges one attempt
+  per signature (Section~\ref{sec:headline}); a proof would charge $\E[N]$, costing $2$--$3$
+  bits.
+\item \textbf{Only the $r_0$ and $z$ checks.} The view stops at $\mathsf{pass}(z)$. The
+  later $\|ct_0\|_\infty\ge\gamma_2$ check (also early-exiting) and the hint-weight check are not
+  modelled. They are independent of the order question but are timing-visible.
+\item \textbf{Leakage model.} Each \texttt{Exceeds} call is assumed to reveal only the first
+  failing index; all other operations (NTT, hashing, \textsc{Decompose}, \ldots) are assumed
+  constant time.
+\end{enumerate}
+
+%======================================================================
+\section{Proof overview}\label{sec:proof}
+%======================================================================
+
+The proof has four steps.
+\begin{enumerate}
+  \item \emph{Exact counting:} the $z$ check is exactly geometric; the $r_0$ check is exactly
+        geometric when $w$ is replaced by a uniform vector.
+  \item \emph{Bonferroni:} the distribution of $I$ for $w = My$ is close to the uniform-$w$ one,
+        up to a truncation error and the deviations of the events ``all coordinates in $T$ fail''
+        for small sets $T$.
+  \item \emph{Second moment:} averaged over a random linear map, these deviations are controlled
+        by the pairs $(y,y')$ for which a nonzero linear test is orthogonal to the image.
+  \item \emph{Module structure:} for $\Rq = \Zq[X]/(X^n+1)$ such pairs are rare, by the NTT and a
+        Vandermonde uncertainty principle.
+\end{enumerate}
+A final step evaluates the resulting closed-form bound numerically.
+
+%----------------------------------------------------------------------
+\subsection{Step 1: exact counting}
+%----------------------------------------------------------------------
+
+\begin{lemma}[\lean{z\_pass\_count}, \lean{J\_dist}]
+For $|u_k|\le\beta$, exactly $2(\gamma_1-\beta)-1$ points $y_k\in(-\gamma_1,\gamma_1]$ pass the $z$
+check. Since $\mathcal{B}$ is a product, $\Pr_y[J(y) = o] = \geom_{p_Z}(o)$ for every bounded $u$.
+\end{lemma}
+
+\begin{lemma}[\lean{r\_pass\_count}, \lean{prob\_univ\_geom}]
+For $|v_i|\le\beta$, exactly $b\,(2(\gamma_2-\beta)-1)$ elements $w\in\Zq$ satisfy
+$|\lowbits(w)-v_i|<\gamma_2-\beta$. Hence for $w$ uniform in $\Zq^m$, the first failing index is
+distributed as $\geom_{p_R}$, and $\Pr_w[\text{all } i\in T \text{ fail}] = p_R^{|T|}$.
+\end{lemma}
+
+The only nontrivial ingredient is a bijection between $\Zq$ and the valid decompositions
+$(r_1,r_0)$: $\{0,\dots,b-1\}\times(-\gamma_2,\gamma_2]$ together with the corner point
+$(0,-\gamma_2)$, which has exactly $q$ elements. On this set $\lowbits$ is the projection to $r_0$,
+so shifting by $v_i$ shifts $r_0$, and the count reduces to counting an interval.
+
+%----------------------------------------------------------------------
+\subsection{Step 2: Bonferroni truncation}
+%----------------------------------------------------------------------
+
+Write $F_i(y)$ for ``coordinate $i$ fails the $r_0$ check for $w = My$''. The event $I = i$ is
+$\neg F_0 \wedge\dots\wedge\neg F_{i-1}\wedge F_i$, and $I=\bot$ is $\bigwedge_i \neg F_i$.
+Inclusion--exclusion expands these into an alternating sum over sets $T$ of
+$\Pr[\bigwedge_{j\in T} F_j]$. Truncating at $|T| < s$ gives an error of at most the sum of the
+$|T| = s$ terms (the Bonferroni inequality, \lean{bonf}).
+
+Do this both for $y$ uniform on a set $B$ and for uniform $w$, and compare term by term. The
+uniform side has terms $p_R^{|T|}$, the $|T|$-th power of the per-coordinate failure
+probability $p_R$ (Definition~3): under uniform $w$ the coordinates are independent, so all of
+$T$ fail with probability $p_R^{|T|}$ (Step~1). Let
+\[
+  \dev_B(T) = \Bigl|\Pr_{y\in B}\bigl[\textstyle\bigwedge_{j\in T}F_j(y)\bigr] - p_R^{|T|}\Bigr|.
+\]
+
+\begin{lemma}[\lean{real\_close\_dev}]\label{lem:bonf}
+For every $M$, bounded $v$, nonempty $B\subseteq\mathcal{B}$, $s\ge1$ and $o$,
+\[
+  \Bigl|\Pr_{y\in B}[I(y)=o] - \geom_{p_R}(o)\Bigr|
+  \le 2\binom{m}{s}p_R^s + 2\sum_{|T|\le s}\dev_B(T).
+\]
+\end{lemma}
+
+This is applied with $B = \mathcal{B}$ for the $\mathsf{rFail}(i)$ views. For $\mathsf{zFail}(j)$, factor
+\[
+  \Pr[I=\bot,\ J=j] = \Pr[J=j]\cdot\Pr_{y\in B_j}[I=\bot],\qquad B_j = \{y\in\mathcal{B} : J(y)=j\},
+\]
+where $\Pr[J=j] = \geom_{p_Z}(j)$ exactly (Step 1), and apply the lemma with $B = B_j$.
+Rescaling to the normalisation of $\mathcal{B}$, define for $B'\subseteq\mathcal{B}$
+\[
+  \mathrm{jdev}_{B'}(T) = \Bigl|\tfrac{|\{y\in B' : \bigwedge_{j\in T}F_j(y)\}|}{|\mathcal{B}|}
+    - \tfrac{|B'|}{|\mathcal{B}|}\,p_R^{|T|}\Bigr| .
+\]
+In words: $\mathrm{jdev}_{B'}(T)$ counts how many masks in $B'$ make every coordinate in $T$ fail,
+minus how many would if each mask failed with the uniform-$w$ probability $p_R^{|T|}$, as a
+fraction of the whole box. Dividing by $|\mathcal{B}|$ rather than $|B'|$ puts all subsets on the
+same scale: for $B'=\mathcal{B}$ it is $\dev_{\mathcal{B}}(T)$, and for $B'=B_j$ it is
+$\dev_{B_j}(T)$ weighted by $|B_j|/|\mathcal{B}|$, which is how much the $\mathsf{zFail}(j)$ view
+depends on it. Summing over the $m+l$ views gives:
+
+\begin{proposition}[\lean{leak\_avg}]\label{prop:leakavg}
+Let $A$ range over any finite family of matrices, and let $s\ge1$, $\delta\ge0$. Suppose that for
+every bounded $v$ and every $B'\subseteq\mathcal{B}$,
+\[
+  \E_A\Bigl[\textstyle\sum_{|T|\le s}\mathrm{jdev}_{B'}(T)\Bigr]\le\delta
+  \qquad(\text{\lean{SparseFailAvg}}).
+\]
+Then $\E_A[\leak(A,u,v)] \le (m+l)\bigl(2\binom{m}{s}p_R^s + 2\delta\bigr)$.
+\end{proposition}
+
+So everything reduces to the following: for every small set $T$ of output coordinates, the events
+``all of $T$ fail'' should have nearly the same probability under $w = Ay$ as under uniform $w$,
+uniformly over sub-events $B'$ of the box, on average over $A$. Here $p_R\approx 8\cdot10^{-4}$,
+so already $s\approx40$ makes the truncation term negligible.
+
+%----------------------------------------------------------------------
+\subsection{Step 3: second moment over a random linear map}
+%----------------------------------------------------------------------
+
+Fix $T$ with $|T|=t$ and write $\Phi_y(A) = (Ay)_T\in\Zq^T$. This is \emph{linear in $A$}. Let
+$E\subseteq\Zq^T$ be the product set of values where every coordinate fails, so
+$|E|/q^t = p_R^t$. Then
+\[
+  \mathrm{jdev}_{B'}(T) = \frac{1}{|\mathcal{B}|}\Bigl|\sum_{y\in B'} X_y(A)\Bigr|,
+  \qquad X_y(A) = \mathbf 1[\Phi_y(A)\in E] - p_R^t ,
+\]
+where $\mathbf 1[P]$ is $1$ if $P$ holds and $0$ otherwise. So $X_y(A)$ is the error contributed
+by the single mask $y$: about $1$ if the rare event ``all of $T$ fail'' happens for this $A$,
+and $-p_R^t$ if it does not. If $Ay$ behaved like a uniform $w$, it would average to $0$ over $A$.
+The quantity $\mathrm{jdev}$ is small when these per-mask errors cancel.
+
+Expanding the square,
+$\E_A[\mathrm{jdev}^2] = |\mathcal{B}|^{-2}\sum_{y,y'\in B'}\E_A[X_y X_{y'}]$. The pair term
+$\E_A[X_y X_{y'}]$ asks whether the errors of $y$ and $y'$ are correlated as $A$ varies. For a
+typical pair, $(Ay)_T$ and $(Ay')_T$ are independent and uniform, and the term is $0$; only
+``bad'' pairs, for which a linear relation ties $(Ay)_T$ to $(Ay')_T$ for every $A$, contribute.
+The rest of the proof counts them.
+
+\paragraph{Fourier analysis of a pair.}
+For a pair $(y,y')$, the map $A\mapsto(\Phi_y(A),\Phi_{y'}(A))\in\Zq^{2t}$ is linear. Its image is
+the annihilator of the set $N(y,y')$ of test vectors $\ell=(\lambda,\lambda')$ with
+$\lambda\cdot\Phi_y(A)+\lambda'\cdot\Phi_{y'}(A) = 0$ for all $A$. If $N=\{0\}$, the pair is
+exactly uniform on $\Zq^{2t}$, the two indicators are independent with mean $p_R^t$, and
+$\E_A[X_yX_{y'}]=0$. In general a character-sum computation (\lean{fiber\_le}, \lean{cross\_le})
+gives
+\[
+  \E_A[X_y X_{y'}] \le 3\,p_R^{2t}\,\bigl(|N(y,y')|-1\bigr).
+\]
+Summing (\lean{second\_moment}), with no leftover-hash loss:
+\[
+  \E_A\bigl[\mathrm{jdev}_{B'}(T)^2\bigr] \le 3\,p_R^{2t}
+  \sum_{\ell\ne0}\Pr_{y,y'\in\mathcal{B}}\bigl[\ell\perp\text{image of }A\mapsto(\Phi_y(A),\Phi_{y'}(A))\bigr].
+  \tag{$\ast$}
+\]
+(The pairs run over $B'\times B'\subseteq\mathcal{B}\times\mathcal{B}$, which is why the bound is uniform in $B'$.)
+
+\paragraph{Assembling over $T$.}
+A weighted Cauchy--Schwarz over $\{T : |T|\le s\}$ with weights $p_R^{|T|}$, followed by Jensen
+over $A$, turns $(\ast)$ into the hypothesis of Proposition~\ref{prop:leakavg} with
+\[
+  \delta^2 \ \ge\ G_s \coloneqq \Bigl(\sum_{t\le s}\tbinom{m}{t}p_R^t\Bigr)
+     \Bigl(\sum_{t\le s}\tbinom{m}{t}\,3\,p_R^{t}\,Q(t)\Bigr),
+\]
+where $Q(t)$ is any upper bound, valid for every $T$ with $|T|=t$, on the sum in $(\ast)$:
+\[
+  \sum_{\ell\ne0}\Pr_{y,y'\in\mathcal{B}}\bigl[\ell\perp\text{image of }A\mapsto(\Phi_y(A),\Phi_{y'}(A))\bigr]
+  \;=\; \E_{y,y'}\bigl[|N(y,y')|-1\bigr] \;\le\; Q(t).
+\]
+That is, $Q(t)$ bounds the expected number of nonzero test vectors tying $(Ay)_T$ to $(Ay')_T$ for
+a random pair of masks (\lean{sparseFailAvg\_module}, \lean{Gt}). The explicit $Q(t)$ used in the
+proof is given at the end of Step~4, equation~\eqref{eq:Q}.
+
+%----------------------------------------------------------------------
+\subsection{Step 4: the module structure}
+%----------------------------------------------------------------------
+
+Up to here nothing used the ring. Now $A$ is a $K\times L$ matrix of elements of
+$\Rq = \Zq[X]/(X^n+1)$, and the only property used (\lean{IsNTTMul}) is:
+
+\begin{quote}
+multiplication is diagonalised by evaluation at $n$ distinct nonzero points $\zeta_k$, i.e.\
+$\widehat{ac}(k) = \hat a(k)\,\hat c(k)$ where $\hat a(k) = \sum_s a_s\zeta_k^s$.
+\end{quote}
+
+\noindent For ML-DSA, $\zeta_k = 1753^{2k+1}$ (proved: $1753^{256} = -1$ and $1753$ has order
+$512$; \lean{isNTTMul\_mldsa}).
+
+\paragraph{Dual coordinates.}
+Write a test vector $\lambda$ on row $i$ of the output as
+$\lambda_{(i,s)} = \sum_k \zeta_k^s\,\tilde\lambda_i(k)$, which is always possible since the
+Vandermonde matrix is invertible (\lean{dual}). Then
+\[
+  \lambda\cdot(Ay) = \sum_{i,j,k}\tilde\lambda_i(k)\,\hat a_{ij}(k)\,\hat y_j(k).
+\]
+Because the $\hat a_{ij}(k)$ can be chosen freely and independently, ``$\ell=(\lambda,\lambda')$ is
+orthogonal for all $A$'' is equivalent to the \emph{slot conditions} (\lean{slot\_of\_orth})
+\[
+  \tilde\lambda_i(k)\,\hat y_j(k) + \tilde\lambda'_i(k)\,\hat y'_j(k) = 0
+  \qquad\text{for all } i,j,k.
+\]
+Let the \emph{joint support} $S(\ell)$ be the set of slots $k$ where some
+$\tilde\lambda_i(k)$ or $\tilde\lambda'_i(k)$ is nonzero. For $\ell\neq0$, $S(\ell)\ne\emptyset$.
+
+\paragraph{Slot conditions are unlikely (window argument).}
+\begin{lemma}[\lean{slot\_prob}, \lean{orth\_prob}]
+If $2\gamma_1\le q$, then for $y,y'$ uniform on $\mathcal{B}$, the slot conditions of $\ell$ hold with
+probability at most $(2\gamma_1)^{-L\,|S(\ell)|}$.
+\end{lemma}
+\begin{proof}[Idea]
+On each slot $k\in S$, one nontrivial linear condition on $(\hat y_j(k),\hat y'_j(k))$ holds for
+every $j<L$. Split $S$ into slots that constrain $y$ (given $y'$) and slots that constrain $y'$. Say
+$r$ slots constrain $y_j$. Fix all coefficients of $y_j$ except the first $r$. The remaining
+unknowns form a polynomial of degree $<r$ whose values at $r$ distinct points are prescribed, so it
+is determined (\lean{window}). Because $2\gamma_1\le q$, coefficients in $(-\gamma_1,\gamma_1]$ are
+determined by their residues mod $q$. So at most a $(2\gamma_1)^{-r}$ fraction of the box survives,
+for each of the $L$ polynomials.
+\end{proof}
+
+\paragraph{Few test vectors have small support (uncertainty principle).}
+The test vector $\ell$ lives on $T$: on row $i$, $\lambda_{(i,\cdot)}$ is supported on the
+$t_i$ positions of $T$ in that row, so it vanishes on a run of $\lfloor n/(t_i+1)\rfloor$
+consecutive positions (\lean{exists\_free\_run}). A function $\tilde\lambda_i$ supported on at most
+$r$ slots whose ``power sums'' vanish on $r$ consecutive exponents is zero (\lean{dual\_vanish}).
+Hence $\tilde\lambda_i$ restricted to $S$ is determined by its values on all but
+$\min(|S|,\lfloor n/(t_i+1)\rfloor)$ of the slots, and
+\[
+  \#\{\ell : S(\ell)\subseteq S\} \le \prod_i q^{2(|S| - \lfloor n/(t_i+1)\rfloor)^+}
+  \le q^{2\min(t,\ e(t,|S|))},
+\]
+where $e(t,\sigma)$ maximises the exponent over all ways of distributing $t$ coordinates over $K$
+rows (a Jensen-type bound, \lean{eB}, \lean{card\_suppIn\_le}). Intuitively, a test vector that
+touches few coordinates must have a large NTT support, and a large support makes the slot
+conditions very unlikely.
+
+\paragraph{Putting it together.}
+Group the nonzero $\ell$ by their support size $\sigma = |S(\ell)|$:
+\[
+  \sum_{\ell\ne0}\Pr[\ell\perp\cdot] \le
+  Q(t) \coloneqq \sum_{\sigma=0}^{n}\binom{n}{\sigma}\,
+  \frac{q^{2\min(t,\,e(t,\sigma))}-1}{(2\gamma_1)^{L\sigma}}
+  \qquad(\text{\lean{QBt}, \lean{Q\_le}}).
+  \tag{Q}\label{eq:Q}
+\]
+Here $\binom{n}{\sigma}$ counts the possible supports $S$ of size $\sigma$, the numerator bounds the
+number of nonzero test vectors with support inside $S$ (uncertainty principle), and
+$(2\gamma_1)^{-L\sigma}$ bounds the probability that one of them is orthogonal for a random pair
+(window argument).
+For small $\sigma$ the numerator is $1-1=0$ (no nonzero test vector has such small support); for
+large $\sigma$ the denominator wins.
+
+\paragraph{Refinement: capping bad pairs.}
+For large $t$ the bound \eqref{eq:Q} blows up: up to $q^{2t}$ test vectors can have small NTT
+support, and each is charged $3p_R^{2t}$. But one pair can never contribute more than about the
+probability of the event itself. Since $\Phi_y(A)$ is uniform on its image, and
+$|\text{image}|\cdot|N_y| = q^t$ where $N_y$ is the set of test vectors $(\lambda,0)$ orthogonal
+for $y$ alone,
+\[
+  \E_A[X_yX_{y'}] \le \Pr_A[\Phi_y(A)\in E] + p_R^{2t} \le p_R^t\,|N_y| + p_R^{2t}
+  \qquad(\text{\lean{cnt1\_le}, \lean{cross\_cap}}).
+\]
+Call slot $k$ \emph{degenerate} for the pair if the vectors $(\hat y_j(k))_j$ and
+$(\hat y'_j(k))_j$ in $\Zq^L$ are linearly dependent, and let $D(y,y')$ be the set of degenerate
+slots (\lean{degS}). By the slot conditions every orthogonal test vector has support inside $D$
+(\lean{jsupp\_sub\_degS}). Fix $\sigma^*=20$ and split the pairs:
+\begin{itemize}
+  \item $|D|<\sigma^*$: keep the old per-pair bound, which now only involves test vectors of support
+        smaller than $\sigma^*$;
+  \item $|D|\ge\sigma^*$: use the cap. Such pairs are rare. Taking a union bound over the sets $U$
+        of $\sigma^*$ slots and over one of the $q+1$ lines $(c:c')$ per slot, and then applying
+        the window argument, gives
+        $\Pr[|D|\ge\sigma^*]\le\binom{n}{\sigma^*}\rho^{\sigma^*}$ with $\rho=(q+1)/(2\gamma_1)^L$
+        (\lean{deg\_prob}).
+\end{itemize}
+The remaining term $p_R^t\,\E[(|N_y|-1)\mathbf 1[|D|\ge\sigma^*]]$ is handled the same way,
+counting the vectors $\lambda$ for $y$ alone with the \emph{one-sided} bound
+$q^{\min(t,e(t,\sigma))}$ (\lean{card\_suppIn1\_le}). Using the pair count $q^{2\min(\cdot)}$
+here would cancel the gain. Altogether
+\[
+  \frac{\E_A[\mathrm{jdev}^2]}{p_R^{t}} \le
+  3p_R^t\sum_{\sigma<\sigma^*}\binom{n}{\sigma}\frac{q^{2x}-1}{(2\gamma_1)^{L\sigma}}
+  + (1+p_R^t)\binom{n}{\sigma^*}\rho^{\sigma^*}
+  + \sum_{\sigma}\binom{n}{\sigma}\frac{q^{x}-1}{(2\gamma_1)^{L\sigma}}
+      \min\Bigl(1,\tbinom{n-\sigma}{\sigma^*-\sigma}\rho^{\sigma^*-\sigma}\Bigr),
+\]
+with $x=\min(t,e(t,\sigma))$ (\lean{moment\_T\_cap}). This replaces $3p_R^tQ(t)$ in $G_s$
+(\lean{Gt2} and \lean{sparseFailAvg\_\allowbreak module\_\allowbreak cap}). It helps where bad pairs carry many test
+vectors, which is exactly the large-$t$ regime, and lets $s$ grow from $41$ to $54$ for
+ML-DSA-44. For ML-DSA-87 it gives nothing: there the limit comes from $t\ge64$, where the
+smallest NTT support is $4$ slots with only about $q^2$ test vectors, so the uncapped bound is
+already below the cap.
+
+%----------------------------------------------------------------------
+\subsection{Step 5: numerics}
+%----------------------------------------------------------------------
+
+With $\delta = 2^{-k}$, the final bound is
+$\E_A[\leak]\le(m+l)\bigl(2\binom{m}{s}p_R^s + 2^{1-k}\bigr)$, valid whenever $G_s\le 2^{-2k}$.
+Both conditions are rewritten as inequalities between natural numbers, using structurally recursive
+sums, and checked by kernel evaluation (\lean{decide +kernel}, not \lean{native\_decide};
+\lean{Gt\_le}, \lean{eps\_le}, \lean{leak\_avg\_module}; with the cap, \lean{Gt2\_le} and
+\lean{leak\_avg\_module\_cap}). ML-DSA-44 and ML-DSA-65 use the capped bound with $\sigma^*=20$;
+ML-DSA-87 uses the uncapped one.
+
+\begin{center}
+\begin{tabular}{lcccc}
+\toprule
+ & $s$ & $k$ & $p_R$ & bound on $\E_A[\leak]$ \\
+\midrule
+ML-DSA-44 & 54 & 254 & $8.2\cdot10^{-4}$ & $2^{-239}$ \\
+ML-DSA-65 & 68 & 304 & $7.5\cdot10^{-4}$ & $2^{-291}$ \\
+ML-DSA-87 & 79 & 393 & $4.6\cdot10^{-4}$ & $2^{-380}$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+The truncation term $(m+l)\cdot2\binom{m}{s}p_R^s$ decreases in $s$, while $G_s$ grows: for
+large $t$ the uncertainty principle allows many test vectors with small NTT support. The values of
+$s$ in the table balance the two. They were found by an exact search over the two integer
+inequalities, taking for each $s$ the largest $k$ allowed by $G_s\le2^{-2k}$ and then the largest
+final exponent. They are tight: increasing $k$ or the final exponent by one breaks the
+corresponding inequality. For ML-DSA-65 every $s$ from $68$ to $79$ reaches $2^{-291}$; the
+table uses the smallest.
+
+%======================================================================
+\section{Map of the Lean file}
+%======================================================================
+
+\begin{center}
+\begin{tabular}{ll}
+\toprule
+Section & Content \\
+\midrule
+\lean{Defs} & the model (Definition~\ref{def:model}) \\
+\lean{Layer0} & Decompose bijection, shift lemma, exact counts, $J$ geometric \\
+\lean{Layer1} & accepted views (Proposition~\ref{prop:pass}) \\
+\lean{Layer2} & Bonferroni with per-set deviations (Lemma~\ref{lem:bonf}) \\
+\lean{Leak} & $\leak$, \lean{indist}, reduction to sparse tests (Proposition~\ref{prop:leakavg}) \\
+\lean{SecondMoment} & character sums, the bound $(\ast)$; capped version (\lean{Cap}) \\
+\lean{Uncertainty} & Vandermonde window and uncertainty principle \\
+\lean{Module}, \lean{ModuleProb} & block matrix, dual coordinates, slot conditions, window argument \\
+\lean{ModuleCount}, \lean{Profile} & counting test vectors by support; $Q(t)$ \\
+\lean{ModuleMain} & Cauchy--Schwarz/Jensen; \lean{sparseFailAvg\_module}(\lean{\_cap}) \\
+\lean{Negacyclic} & $\Zq[X]/(X^n+1)$ satisfies \lean{IsNTTMul}; ML-DSA roots \\
+\lean{Numeric}, \lean{MLDSA} & evaluation of the bound; Theorem~\ref{thm:main} \\
+\lean{Headline} & many attempts, few bad matrices (Theorem~\ref{thm:headline}) \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+The file builds with Lean~4.34 and a recent Mathlib in about 35 seconds.
+\lean{\#print axioms} reports only \lean{propext}, \lean{Classical.choice} and \lean{Quot.sound}
+for \lean{indist}, the three main theorems and the three \lean{bad\_frac} instances.
+
+\end{document}
