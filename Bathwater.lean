@@ -3860,6 +3860,54 @@ theorem dev_mldsa87_sharp {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo :
       (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 17 28 190
       (by norm_num) (by norm_num) num_87_z
 
+/-- **ML-DSA-44, second moment.** `E_A E_t (ρ_c(t) − μ)² ≤ μ² / 2^294`. -/
+theorem var_mldsa44_sharp {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
+    avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 17) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 147) := by
+  rcases hw with rfl | rfl
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 25 19 26 (2 * 147)
+      (by norm_num) (by norm_num) num_44_full
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 25 19 26 (2 * 147)
+      (by norm_num) (by norm_num) num_44_z
+
+/-- **ML-DSA-65, second moment.** `E_A E_t (ρ_c(t) − μ)² ≤ μ² / 2^364`. -/
+theorem var_mldsa65_sharp {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
+    avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 182) := by
+  rcases hw with rfl | rfl
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 26 19 27 (2 * 182)
+      (by norm_num) (by norm_num) num_65_full
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 26 19 27 (2 * 182)
+      (by norm_num) (by norm_num) num_65_z
+
+/-- **ML-DSA-87, second moment.** `E_A E_t (ρ_c(t) − μ)² ≤ μ² / 2^380`. -/
+theorem var_mldsa87_sharp {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
+    avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 190) := by
+  rcases hw with rfl | rfl
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 17 28 (2 * 190)
+      (by norm_num) (by norm_num) num_87_full
+  · exact var_rel_sharp isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 17 28 (2 * 190)
+      (by norm_num) (by norm_num) num_87_z
+
 end MLDSASharp
 
 
@@ -3874,12 +3922,13 @@ section AltR0FinalPart
 /-!
 # alt-r0 for ML-DSA: end to end
 
-`Bathwater.lean` computes the output law of `alt-r0` with a set `H` of resampled coordinates
+Section `BathwaterCore` computes the output law of `alt-r0` with a set `H` of resampled coordinates
 (`Bathwater.altR0Set_law`) and bounds its distance to vanilla signing in terms of the relative mean
 deviation `dev` of `ρ` (the r₀ pass probability with the `H` part fresh) from a constant `μ₀`
-(`Bathwater.altR0Set_close`). `AltR0.lean` bounds `E_A E_t |ρ_c(t) − μ| ≤ μ / 2^j` for ML-DSA, for
-every `c·s₂`, every head box and every head index (`AltR0.dev_mldsa44_sharp` etc., in `AltR0Sharp.lean`). This file joins the
-two.
+(`Bathwater.altR0Set_close`). Section `AltR0SharpPart` bounds, for ML-DSA, every `c·s₂`, every head
+box and every head index, the second moment `E_A E_t (ρ_c(t) − μ)² ≤ μ² / 2^{2j}`
+(`AltR0.var_mldsa44_sharp` etc.) and the first moment `E_A E_t |ρ_c(t) − μ| ≤ μ / 2^j`
+(`AltR0.dev_mldsa44_sharp` etc.). This section joins the two.
 
 ## The instance
 
@@ -3907,22 +3956,25 @@ where `t` is uniform on the tail box `AltR0.tbox` and `ρ_c = AltR0.rhoC`.
    vanilla's in `ℓ¹`, and it fails to terminate with probability at most `X/D`.
 4. `avg_X_le`, `avg_Xz_le`: averaging over `a` commutes with averaging over `c`, so
    `dev_mldsa*_sharp` gives `E_a X ≤ μ/2^j` and `E_a Xz ≤ μ/2^j`.
-5. `main`: by Markov, at most a `2·2^{-j}/ε` fraction of matrices are `Bad` (`X ≥ με` or
-   `Xz ≥ με`); for all others `D ≥ μ(p_z − 2ε)`, so the `ℓ¹` distance is at most
+5. `main`: by Markov on these first moments, at most a `2·2^{-j}/ε` fraction of matrices are `Bad`
+   (`X ≥ με` or `Xz ≥ με`); for all others `D ≥ μ(p_z − 2ε)`, so the `ℓ¹` distance is at most
    `2ε/(p_z − 2ε)` and the non-termination probability at most `ε/(p_z − 2ε)`.
+6. `main2`: better, apply Markov to the second moments `X2`, `Xz2` (`E_a X2 ≤ μ²/2^{2j}`, from
+   `var_mldsa*_sharp`): at most a `2·2^{-2j}/ε²` fraction of matrices are `Bad2`
+   (`X2 ≥ (με)²` or `Xz2 ≥ (με)²`), and for the others `X, Xz < με` by Cauchy–Schwarz over
+   `(c, t)` (`X_lt_of_X2`), with the same conclusions as `main`.
 
 ## Results
 
-`altR0_mldsa44_eps` (and 65, 87) state `main` for each parameter set with any `ε`;
-`altR0_mldsa44` takes `ε = 2^-60` and uses `p_z ≥ 27/50` (`pz_ge_44`, checked by the kernel):
+`altR0_mldsa44_eps` (and 65, 87) state `main` for any `ε`. The headlines `altR0_mldsa44/65/87`
+use `main2`:
 
-* at most a `2^-62` fraction of matrices are bad, and
-* for every other matrix, `∑ |altLaw − vanLaw| ≤ 2^-58` (statistical distance `≤ 2^-59`), and the
-  non-termination probability is `≤ 2^-59`.
-
-ML-DSA-65 (`ε = 2^-72`, `p_z ≥ 3/5`): bad fraction `≤ 2^-72`, `ℓ¹ ≤ 2^-70`, non-termination
-`≤ 2^-71`. ML-DSA-87 (`ε = 2^-66`, `p_z ≥ 3/5`): bad fraction `≤ 2^-66`, `ℓ¹ ≤ 2^-64`,
-non-termination `≤ 2^-65`.
+* ML-DSA-44 (`ε = 2^-98`, `p_z ≥ 27/50`): bad fraction `≤ 2^-97`; for every other matrix
+  `∑ |altLaw − vanLaw| ≤ 2^-96` and non-termination `≤ 2^-97`.
+* ML-DSA-65 (`ε = 2^-121`, `p_z ≥ 3/5`): bad fraction `≤ 2^-121`, `ℓ¹ ≤ 2^-119`, non-termination
+  `≤ 2^-120`.
+* ML-DSA-87 (`ε = 2^-126`, `p_z ≥ 3/5`): bad fraction `≤ 2^-127`, `ℓ¹ ≤ 2^-124`, non-termination
+  `≤ 2^-125`.
 
 Here `altLaw` is the limit of the output distribution of the alt-r0 loop
 (`Bathwater.altR0Set_law`) and `vanLaw` that of vanilla signing (`Bathwater.vanilla_law`), both
@@ -4550,6 +4602,190 @@ theorem main [Nonempty C] [Nonempty (V γ₁ n)]
             div_le_div₀ hη.le hXa.le hgap hle
         _ = ε / (pz γ₁ β L n - 2 * ε) := mul_div_mul_left _ _ hμ.ne'
 
+
+/-! ## Markov on the second moment -/
+
+/-- Mean squared deviation of the r₀ pass probability over the tail, full head box, averaged over
+`c`. -/
+def X2 (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β mb : ℕ)
+    (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (a : Fin K → Fin L → Fin n → ZMod q) : ℚ :=
+  avg fun c : C => (∑ t ∈ AltR0.tbox γ₁ h₀,
+    (AltR0.rhoC mulmat γ₂ β (v c) (fun _ => -(γ₁ : ℤ) + 1) (2 * γ₁) h₀ a t - mu q γ₂ β mb K n) ^ 2) /
+      (AltR0.tbox (n := n) γ₁ h₀).card
+
+/-- The same with the z-passing head box. -/
+def Xz2 (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β mb : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L)
+    (a : Fin K → Fin L → Fin n → ZMod q) : ℚ :=
+  avg fun c : C => (∑ t ∈ AltR0.tbox γ₁ h₀,
+    (AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β) h₀ a t - mu q γ₂ β mb K n) ^ 2) /
+      (AltR0.tbox (n := n) γ₁ h₀).card
+
+/-- `E|d| ≤ (E d² / η + η) / 2`, averaged over `c` and a finite set of `t`. -/
+lemma avg_abs_le [Nonempty C] {ι : Type*} (s : Finset ι) (d : C → ι → ℚ) {η : ℚ} (hη : 0 < η) :
+    avg (fun c => (∑ t ∈ s, |d c t|) / s.card)
+      ≤ (avg (fun c => (∑ t ∈ s, d c t ^ 2) / s.card) / η + η) / 2 := by
+  have hpt : ∀ x : ℚ, |x| ≤ (x ^ 2 / η + η) / 2 := by
+    intro x
+    have : 0 ≤ (|x| - η) ^ 2 / η := div_nonneg (sq_nonneg _) hη.le
+    rw [sub_sq, sq_abs] at this
+    have e1 : (x ^ 2 - 2 * |x| * η + η ^ 2) / η = x ^ 2 / η - 2 * |x| + η := by field_simp
+    linarith
+  have hc : ∀ c, (∑ t ∈ s, |d c t|) / s.card
+      ≤ ((∑ t ∈ s, d c t ^ 2) / s.card / η + η) / 2 := by
+    intro c
+    rcases Nat.eq_zero_or_pos s.card with h0 | hpos
+    · rw [h0, Nat.cast_zero, div_zero, div_zero, zero_div, zero_add]; positivity
+    · have hs : (0 : ℚ) < s.card := by exact_mod_cast hpos
+      rw [div_le_iff₀ hs]
+      refine (Finset.sum_le_sum fun t _ => hpt (d c t)).trans (le_of_eq ?_)
+      rw [← Finset.sum_div, Finset.sum_add_distrib, ← Finset.sum_div, Finset.sum_const, nsmul_eq_mul]
+      field_simp
+  refine (avg_mono hc).trans (le_of_eq ?_)
+  unfold avg
+  rw [Finset.sum_div, Finset.sum_div]
+  simp only [add_div, Finset.sum_add_distrib, Finset.sum_div, Finset.sum_const, card_univ,
+    nsmul_eq_mul]
+  have : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  field_simp
+
+lemma X_lt_of_X2 [Nonempty C] (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q))
+    {γ₂ mb : ℕ} (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (a : Fin K → Fin L → Fin n → ZMod q)
+    {η : ℚ} (hη : 0 < η) (h : X2 mulmat γ₁ γ₂ β mb v h₀ a < η ^ 2) :
+    X mulmat γ₁ γ₂ β mb v h₀ a < η := by
+  have := avg_abs_le (C := C) (AltR0.tbox (n := n) γ₁ h₀) (fun c t =>
+    AltR0.rhoC mulmat γ₂ β (v c) (fun _ => -(γ₁ : ℤ) + 1) (2 * γ₁) h₀ a t - mu q γ₂ β mb K n) hη
+  have h2 : X2 mulmat γ₁ γ₂ β mb v h₀ a / η < η := by rw [div_lt_iff₀ hη]; nlinarith
+  unfold X; unfold X2 at h2
+  linarith
+
+lemma Xz_lt_of_Xz2 [Nonempty C] (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q))
+    {γ₂ mb : ℕ} (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L)
+    (a : Fin K → Fin L → Fin n → ZMod q)
+    {η : ℚ} (hη : 0 < η) (h : Xz2 mulmat γ₁ γ₂ β mb u v h₀ a < η ^ 2) :
+    Xz mulmat γ₁ γ₂ β mb u v h₀ a < η := by
+  have := avg_abs_le (C := C) (AltR0.tbox (n := n) γ₁ h₀) (fun c t =>
+    AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β) h₀ a t - mu q γ₂ β mb K n) hη
+  have h2 : Xz2 mulmat γ₁ γ₂ β mb u v h₀ a / η < η := by rw [div_lt_iff₀ hη]; nlinarith
+  unfold Xz; unfold Xz2 at h2
+  linarith
+
+lemma X2_nonneg (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ β mb : ℕ)
+    (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (a : Fin K → Fin L → Fin n → ZMod q) :
+    0 ≤ X2 mulmat γ₁ γ₂ β mb v h₀ a :=
+  avg_nonneg fun c => div_nonneg (Finset.sum_nonneg fun t _ => sq_nonneg _) (Nat.cast_nonneg _)
+
+lemma Xz2_nonneg (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ β mb : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L)
+    (a : Fin K → Fin L → Fin n → ZMod q) : 0 ≤ Xz2 mulmat γ₁ γ₂ β mb u v h₀ a :=
+  avg_nonneg fun c => div_nonneg (Finset.sum_nonneg fun t _ => sq_nonneg _) (Nat.cast_nonneg _)
+
+lemma avg_X2_le [Nonempty C] (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q))
+    {γ₂ mb : ℕ} (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) {δ : ℚ}
+    (hvar : ∀ c, avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+      (∑ t ∈ AltR0.tbox γ₁ h₀, (AltR0.rhoC mulmat γ₂ β (v c) (fun _ => -(γ₁ : ℤ) + 1) (2 * γ₁)
+        h₀ a t - mu q γ₂ β mb K n) ^ 2) / (AltR0.tbox (n := n) γ₁ h₀).card)
+        ≤ mu q γ₂ β mb K n ^ 2 * δ) :
+    avg (fun a => X2 mulmat γ₁ γ₂ β mb v h₀ a) ≤ mu q γ₂ β mb K n ^ 2 * δ := by
+  unfold X2
+  rw [avg_comm]
+  exact (avg_mono hvar).trans (avg_const _).le
+
+lemma avg_Xz2_le [Nonempty C] (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q))
+    {γ₂ mb : ℕ} (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) {δ : ℚ}
+    (hvar : ∀ c, avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+      (∑ t ∈ AltR0.tbox γ₁ h₀, (AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β)
+        h₀ a t - mu q γ₂ β mb K n) ^ 2) / (AltR0.tbox (n := n) γ₁ h₀).card)
+        ≤ mu q γ₂ β mb K n ^ 2 * δ) :
+    avg (fun a => Xz2 mulmat γ₁ γ₂ β mb u v h₀ a) ≤ mu q γ₂ β mb K n ^ 2 * δ := by
+  unfold Xz2
+  rw [avg_comm]
+  exact (avg_mono hvar).trans (avg_const _).le
+
+/-- A matrix is *bad in mean square* (at level `ε`) if one of the two mean squared deviations is
+at least `(μ ε)²`. -/
+def Bad2 (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β mb : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (ε : ℚ)
+    (a : Fin K → Fin L → Fin n → ZMod q) : Prop :=
+  (mu q γ₂ β mb K n * ε) ^ 2 ≤ X2 mulmat γ₁ γ₂ β mb v h₀ a ∨
+    (mu q γ₂ β mb K n * ε) ^ 2 ≤ Xz2 mulmat γ₁ γ₂ β mb u v h₀ a
+
+instance (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β mb : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (ε : ℚ) :
+    DecidablePred (Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε) :=
+  fun _ => by unfold Bad2; infer_instance
+
+/-- **Main theorem, second-moment form.** If the mean squared deviations are at most `μ² δ` on
+average over the matrix, then at most a `2δ/ε²` fraction of matrices are bad in mean square, and
+every other matrix has the conclusions of `main`. Markov is applied to the second moment, and
+Cauchy–Schwarz only per matrix. -/
+theorem main2 [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ}
+    (hp : Params q γ₁ γ₂ β mb) (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ)
+    (hu : ∀ c, Bounded β (u c)) (h₀ : Fin L) {δ ε : ℚ} (hε : 0 < ε)
+    (hX : avg (fun a => X2 mulmat γ₁ γ₂ β mb v h₀ a) ≤ mu q γ₂ β mb K n ^ 2 * δ)
+    (hZ : avg (fun a => Xz2 mulmat γ₁ γ₂ β mb u v h₀ a) ≤ mu q γ₂ β mb K n ^ 2 * δ) :
+    ((univ.filter (Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε)).card : ℚ) /
+        Fintype.card (Fin K → Fin L → Fin n → ZMod q) ≤ 2 * δ / ε ^ 2 ∧
+      ∀ a, ¬ Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε a → 2 * ε < pz γ₁ β L n →
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u) x -
+            Bathwater.AltR0Set.vanLaw
+              (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c) x| ≤
+          2 * ε / (pz γ₁ β L n - 2 * ε) ∧
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u) x ≤
+          ε / (pz γ₁ β L n - 2 * ε) := by
+  set μ := mu q γ₂ β mb K n
+  have hμ : 0 < μ := mu_pos hp
+  have hη : 0 < μ * ε := mul_pos hμ hε
+  have hη2 : 0 < (μ * ε) ^ 2 := by positivity
+  have hr : μ ^ 2 * δ / (μ * ε) ^ 2 = δ / ε ^ 2 := by
+    rw [mul_pow]; exact mul_div_mul_left _ _ (pow_ne_zero 2 hμ.ne')
+  refine ⟨?_, ?_⟩
+  · have h1 := markov (fun a => X2_nonneg mulmat γ₂ β mb v h₀ a) hη2 hX
+    have h2 := markov (fun a => Xz2_nonneg mulmat γ₂ β mb u v h₀ a) hη2 hZ
+    rw [hr] at h1 h2
+    have hc : ((univ.filter (Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε)).card : ℚ) ≤
+        ((univ.filter fun a => (μ * ε) ^ 2 ≤ X2 mulmat γ₁ γ₂ β mb v h₀ a).card : ℚ) +
+          ((univ.filter fun a => (μ * ε) ^ 2 ≤ Xz2 mulmat γ₁ γ₂ β mb u v h₀ a).card : ℚ) := by
+      rw [← Nat.cast_add]
+      refine Nat.cast_le.mpr (le_trans (card_le_card ?_) (card_union_le _ _))
+      intro a ha
+      simp only [mem_filter, mem_univ, true_and, Bad2, mem_union] at ha ⊢
+      exact ha
+    have hA : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
+      exact_mod_cast Fintype.card_pos
+    calc ((univ.filter (Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε)).card : ℚ) /
+          Fintype.card (Fin K → Fin L → Fin n → ZMod q)
+        ≤ (((univ.filter fun a => (μ * ε) ^ 2 ≤ X2 mulmat γ₁ γ₂ β mb v h₀ a).card : ℚ) +
+            ((univ.filter fun a => (μ * ε) ^ 2 ≤ Xz2 mulmat γ₁ γ₂ β mb u v h₀ a).card : ℚ)) /
+            Fintype.card (Fin K → Fin L → Fin n → ZMod q) :=
+          div_le_div_of_nonneg_right hc hA.le
+      _ ≤ δ / ε ^ 2 + δ / ε ^ 2 := by rw [add_div]; exact add_le_add h1 h2
+      _ = 2 * δ / ε ^ 2 := by ring
+  · intro a ha hpz
+    simp only [Bad2, not_or, not_le] at ha
+    obtain ⟨hXa2, hZa2⟩ := ha
+    have hXa := X_lt_of_X2 mulmat v h₀ a hη hXa2
+    have hZa := Xz_lt_of_Xz2 mulmat u v h₀ a hη hZa2
+    have hX0 := X_nonneg (γ₁ := γ₁) mulmat γ₂ β mb v h₀ a
+    have hgap : 0 < μ * (pz γ₁ β L n - 2 * ε) := mul_pos hμ (by linarith)
+    have hle : μ * (pz γ₁ β L n - 2 * ε) ≤ μ * pz γ₁ β L n - Xz mulmat γ₁ γ₂ β mb u v h₀ a -
+        X mulmat γ₁ γ₂ β mb v h₀ a := by linarith
+    obtain ⟨h1, h2⟩ := close mulmat hp u v hu a h₀ (lt_of_lt_of_le hgap hle)
+    refine ⟨h1.trans ?_, h2.trans ?_⟩
+    · calc 2 * X mulmat γ₁ γ₂ β mb v h₀ a / (μ * pz γ₁ β L n -
+            Xz mulmat γ₁ γ₂ β mb u v h₀ a - X mulmat γ₁ γ₂ β mb v h₀ a)
+          ≤ 2 * (μ * ε) / (μ * (pz γ₁ β L n - 2 * ε)) :=
+            div_le_div₀ (by positivity) (by linarith) hgap hle
+        _ = 2 * ε / (pz γ₁ β L n - 2 * ε) := by
+            rw [mul_left_comm, mul_div_mul_left _ _ hμ.ne']
+    · calc X mulmat γ₁ γ₂ β mb v h₀ a / (μ * pz γ₁ β L n -
+            Xz mulmat γ₁ γ₂ β mb u v h₀ a - X mulmat γ₁ γ₂ β mb v h₀ a)
+          ≤ (μ * ε) / (μ * (pz γ₁ β L n - 2 * ε)) :=
+            div_le_div₀ hη.le hXa.le hgap hle
+        _ = ε / (pz γ₁ β L n - 2 * ε) := mul_div_mul_left _ _ hμ.ne'
+
+
 end General
 
 /-! ## ML-DSA-44 -/
@@ -4612,29 +4848,51 @@ theorem altR0_mldsa44_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4
           ε / (pz (2 ^ 17) 78 4 256 - 2 * ε) :=
   main negacyclic params_mldsa44 u v hu h₀ hε (avg_X_44 v hv h₀) (avg_Xz_44 u v hv h₀)
 
-/-- **ML-DSA-44, headline.** Take `ε = 2^-73`. For at least a `1 − 2^-73` fraction of
-matrices `A`, alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law within
-`2^-71` of vanilla's in `ℓ¹` (statistical distance `≤ 2^-72`), and fails to terminate with
-probability at most `2^-72`. -/
+lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) → ℤ)
+    (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
+    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
+      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ (2 * 147)) := by
+  apply avg_X2_le
+  intro c
+  have := AltR0.var_mldsa44_sharp (hv c) (lo := fun _ => -(((2 ^ 17) : ℕ) : ℤ) + 1)
+    (w := 2 * (2 ^ 17)) (Or.inl rfl) h₀
+  rw [mu_eq_44 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+lemma avg_Xz2_44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
+    (v : C → Fin (4 * 256) → ℤ) (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
+    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
+      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ (2 * 147)) := by
+  apply avg_Xz2_le
+  intro c
+  have := AltR0.var_mldsa44_sharp (hv c) (lo := zlo (2 ^ 17) 78 h₀ (u c)) (w := zw (2 ^ 17) 78)
+    (Or.inr rfl) h₀
+  rw [mu_eq_44 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+/-- **ML-DSA-44, headline.** Take `ε = 2^-98`. For at least a `1 − 2^-97` fraction of
+matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
+`y_{h₀}` on an r₀ failure) has output law within `2^-96` of vanilla's in `ℓ¹`, and fails to
+terminate with probability at most `2^-97`. -/
 theorem altR0_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
     (h₀ : Fin 4) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-        (1 / 2 ^ 73))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 73 ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-          (1 / 2 ^ 73) a →
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
+        (1 / 2 ^ 98))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 97 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 98) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
               (zok (2 ^ 17) 78 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
-              zok (2 ^ 17) 78 u y c) x| ≤ 1 / 2 ^ 71 ∧
+              zok (2 ^ 17) 78 u y c) x| ≤ 1 / 2 ^ 96 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
-              (zok (2 ^ 17) 78 u) x ≤ 1 / 2 ^ 72 := by
-  obtain ⟨h1, h2⟩ := altR0_mldsa44_eps u v hu hv h₀ (ε := 1 / 2 ^ 73) (by norm_num)
-  refine ⟨h1.trans (le_of_eq (by norm_num)), fun a ha => ?_⟩
+              (zok (2 ^ 17) 78 u) x ≤ 1 / 2 ^ 97 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 98) (by norm_num)
+    (avg_X2_44 v hv h₀) (avg_Xz2_44 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_44
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 2 * (1 / 2 ^ 73) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 73) ≤ 27 / 50 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 2 * (1 / 2 ^ 98) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 98) ≤ 27 / 50 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩
@@ -4703,29 +4961,51 @@ theorem altR0_mldsa65_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5
           ε / (pz (2 ^ 19) 196 5 256 - 2 * ε) :=
   main negacyclic params_mldsa65 u v hu h₀ hε (avg_X_65 v hv h₀) (avg_Xz_65 u v hv h₀)
 
-/-- **ML-DSA-65, headline.** Take `ε = 2^-91`. For at least a `1 − 2^-90` fraction of
-matrices `A`, alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law within
-`2^-89` of vanilla's in `ℓ¹` (statistical distance `≤ 2^-90`), and fails to terminate with
-probability at most `2^-90`. -/
+lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) → ℤ)
+    (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
+    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
+      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ (2 * 182)) := by
+  apply avg_X2_le
+  intro c
+  have := AltR0.var_mldsa65_sharp (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+    (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
+  rw [mu_eq_65 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+lemma avg_Xz2_65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
+    (v : C → Fin (6 * 256) → ℤ) (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
+    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
+      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ (2 * 182)) := by
+  apply avg_Xz2_le
+  intro c
+  have := AltR0.var_mldsa65_sharp (hv c) (lo := zlo (2 ^ 19) 196 h₀ (u c)) (w := zw (2 ^ 19) 196)
+    (Or.inr rfl) h₀
+  rw [mu_eq_65 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+/-- **ML-DSA-65, headline.** Take `ε = 2^-121`. For at least a `1 − 2^-121` fraction of
+matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
+`y_{h₀}` on an r₀ failure) has output law within `2^-119` of vanilla's in `ℓ¹`, and fails to
+terminate with probability at most `2^-120`. -/
 theorem altR0_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
     (h₀ : Fin 5) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-        (1 / 2 ^ 91))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 90 ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-          (1 / 2 ^ 91) a →
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
+        (1 / 2 ^ 121))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 121 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 121) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
               (zok (2 ^ 19) 196 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
-              zok (2 ^ 19) 196 u y c) x| ≤ 1 / 2 ^ 89 ∧
+              zok (2 ^ 19) 196 u y c) x| ≤ 1 / 2 ^ 119 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
-              (zok (2 ^ 19) 196 u) x ≤ 1 / 2 ^ 90 := by
-  obtain ⟨h1, h2⟩ := altR0_mldsa65_eps u v hu hv h₀ (ε := 1 / 2 ^ 91) (by norm_num)
-  refine ⟨h1.trans (le_of_eq (by norm_num)), fun a ha => ?_⟩
+              (zok (2 ^ 19) 196 u) x ≤ 1 / 2 ^ 120 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 121) (by norm_num)
+    (avg_X2_65 v hv h₀) (avg_Xz2_65 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_65
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 2 * (1 / 2 ^ 91) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 91) ≤ 3 / 5 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 2 * (1 / 2 ^ 121) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 121) ≤ 3 / 5 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩
@@ -4794,29 +5074,51 @@ theorem altR0_mldsa87_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7
           ε / (pz (2 ^ 19) 120 7 256 - 2 * ε) :=
   main negacyclic params_mldsa87 u v hu h₀ hε (avg_X_87 v hv h₀) (avg_Xz_87 u v hv h₀)
 
-/-- **ML-DSA-87, headline.** Take `ε = 2^-95`. For at least a `1 − 2^-94` fraction of
-matrices `A`, alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law within
-`2^-93` of vanilla's in `ℓ¹` (statistical distance `≤ 2^-94`), and fails to terminate with
-probability at most `2^-94`. -/
+lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) → ℤ)
+    (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
+    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
+      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ (2 * 190)) := by
+  apply avg_X2_le
+  intro c
+  have := AltR0.var_mldsa87_sharp (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+    (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
+  rw [mu_eq_87 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+lemma avg_Xz2_87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
+    (v : C → Fin (8 * 256) → ℤ) (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
+    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
+      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ (2 * 190)) := by
+  apply avg_Xz2_le
+  intro c
+  have := AltR0.var_mldsa87_sharp (hv c) (lo := zlo (2 ^ 19) 120 h₀ (u c)) (w := zw (2 ^ 19) 120)
+    (Or.inr rfl) h₀
+  rw [mu_eq_87 (hv c)] at this
+  rw [mul_one_div]; exact this
+
+/-- **ML-DSA-87, headline.** Take `ε = 2^-126`. For at least a `1 − 2^-127` fraction of
+matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
+`y_{h₀}` on an r₀ failure) has output law within `2^-124` of vanilla's in `ℓ¹`, and fails to
+terminate with probability at most `2^-125`. -/
 theorem altR0_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
     (h₀ : Fin 7) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-        (1 / 2 ^ 95))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 94 ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-          (1 / 2 ^ 95) a →
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
+        (1 / 2 ^ 126))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 127 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 126) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
               (zok (2 ^ 19) 120 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
-              zok (2 ^ 19) 120 u y c) x| ≤ 1 / 2 ^ 93 ∧
+              zok (2 ^ 19) 120 u y c) x| ≤ 1 / 2 ^ 124 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
-              (zok (2 ^ 19) 120 u) x ≤ 1 / 2 ^ 94 := by
-  obtain ⟨h1, h2⟩ := altR0_mldsa87_eps u v hu hv h₀ (ε := 1 / 2 ^ 95) (by norm_num)
-  refine ⟨h1.trans (le_of_eq (by norm_num)), fun a ha => ?_⟩
+              (zok (2 ^ 19) 120 u) x ≤ 1 / 2 ^ 125 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 126) (by norm_num)
+    (avg_X2_87 v hv h₀) (avg_Xz2_87 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_87
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 2 * (1 / 2 ^ 95) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 95) ≤ 3 / 5 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 2 * (1 / 2 ^ 126) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 126) ≤ 3 / 5 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩

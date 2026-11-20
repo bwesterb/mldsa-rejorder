@@ -44,9 +44,9 @@ proposal \emph{alt-r0} (r$_0$-check first; on failure resample only $y_1$) is \e
 perfectly zero-knowledge: on a Dilithium-shaped toy instance, two secret keys with the same public
 key output the same signature with probabilities $1/6$ and $1/3$. Two other orderings fail the
 same way. For the real parameters alt-r0 is nevertheless \emph{statistically} close to vanilla:
-for all but a $2^{-73}$ fraction of matrices $A$, the alt-r0 signature distribution is within
-$2^{-71}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-89}$ and $2^{-93}$ for ML-DSA-65/87, with
-bad fractions $2^{-90}$ and $2^{-94}$), per signature. The proof bounds the second moment, over $A$,
+for all but a $2^{-97}$ fraction of matrices $A$, the alt-r0 signature distribution is within
+$2^{-96}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-119}$ and $2^{-124}$ for ML-DSA-65/87, with
+bad fractions $2^{-121}$ and $2^{-127}$), per signature. The proof bounds the second moment, over $A$,
 of the r$_0$ pass probability with the tail of $y$ fixed, by a Fourier expansion of the pass set
 and the uncertainty-principle counting of \lean{RejOrder.lean}.
 \end{abstract}
@@ -263,9 +263,13 @@ and $y_{h_0}$ ranging over either the full box or the z-passing box shifted by $
 for ML-DSA-44, -65, -87, with $A$ uniform in $R_q^{k\times\ell}$ and $t$ uniform.
 \end{theorem}
 
-Combining with Section~\ref{sec:altr0} (the full box controls $D$, the z-passing box gives
+The second moment behind it is $\mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
+\le \mu^2 2^{-294}, \mu^2 2^{-364}, \mu^2 2^{-380}$ (\lean{var\_mldsa44\_sharp} etc.). Combining
+with Section~\ref{sec:altr0} (the full box controls $D$, the z-passing box gives
 $P \ge \mu p_z - \text{error}$ with $p_z \approx 0.54, 0.62, 0.66$ the z pass probability) and
-Markov's inequality over $A$:
+Markov's inequality over $A$ applied to that \emph{second} moment (a matrix is bad if the mean
+squared deviation exceeds $(\mu\varepsilon)^2$; for the others the mean deviation is below
+$\mu\varepsilon$ by Cauchy--Schwarz, \lean{main2}):
 
 \begin{theorem}[\lean{AltR0Final.altR0\_mldsa44}, \lean{\_65}, \lean{\_87}]
 For any finite challenge set $C$ and $c s_1$, $c s_2$ bounded by $\beta$, and any $h_0$:
@@ -274,14 +278,17 @@ For any finite challenge set $C$ and $c s_1$, $c s_2$ bounded by $\beta$, and an
 \toprule
  & bad fraction of $A$ & $\sum_x|U(x)-V(x)|$ & $\Pr[\text{never terminates}]$\\
 \midrule
-ML-DSA-44 & $\le 2^{-73}$ & $\le 2^{-71}$ & $\le 2^{-72}$\\
-ML-DSA-65 & $\le 2^{-90}$ & $\le 2^{-89}$ & $\le 2^{-90}$\\
-ML-DSA-87 & $\le 2^{-94}$ & $\le 2^{-93}$ & $\le 2^{-94}$\\
+ML-DSA-44 & $\le 2^{-97}$ & $\le 2^{-96}$ & $\le 2^{-97}$\\
+ML-DSA-65 & $\le 2^{-121}$ & $\le 2^{-119}$ & $\le 2^{-120}$\\
+ML-DSA-87 & $\le 2^{-127}$ & $\le 2^{-124}$ & $\le 2^{-125}$\\
 \bottomrule
 \end{tabular}
 \end{center}
-The last two columns hold for every $A$ outside the bad set. The trade-off between the columns is
-linear and can be moved (\lean{altR0\_mldsa44\_eps}).
+The last two columns hold for every $A$ outside the bad set. The bad fraction scales as
+$2^{-2j}/\varepsilon^2$ and the distance as $\varepsilon$, so the trade-off can be moved; e.g.\
+keeping the distance at $2^{-71}$ for ML-DSA-44 makes the bad fraction $2^{-147}$. (Applying
+Markov to the first moment instead, \lean{altR0\_mldsa44\_eps}, gives only $2^{-73}$ and
+$2^{-71}$.)
 \end{theorem}
 
 These are per-signature distances in the Trans model; over $N$ signatures they add up ($N$ times).
