@@ -43,8 +43,12 @@ vanilla signing, so the vanilla zero-knowledge simulator applies unchanged. The 
 proposal \emph{alt-r0} (r$_0$-check first; on failure resample only $y_1$) is \emph{not}
 perfectly zero-knowledge: on a Dilithium-shaped toy instance, two secret keys with the same public
 key output the same signature with probabilities $1/6$ and $1/3$. Two other orderings fail the
-same way. Whether alt-r0 is \emph{statistically} zero-knowledge for the real parameters is left
-open.
+same way. For the real parameters alt-r0 is nevertheless \emph{statistically} close to vanilla:
+for all but a $2^{-62}$ fraction of matrices $A$, the alt-r0 signature distribution is within
+$2^{-58}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-70}$ and $2^{-64}$ for ML-DSA-65/87, with
+bad fractions $2^{-72}$ and $2^{-66}$), per signature. The proof bounds the second moment, over $A$,
+of the r$_0$ pass probability with the tail of $y$ fixed, by a Fourier expansion of the pass set
+and the uncertainty-principle counting of \lean{RejOrder.lean}.
 \end{abstract}
 
 \tableofcontents
@@ -59,7 +63,8 @@ Policy & Source & Verdict\\
 vanilla, any check order & FIPS 204 & exact (by definition)\\
 alt-z: z first, prefix resample & thesis Alg.~8.2 & \textbf{exact} (\lean{altZ\_exact})\\
 alt-r0: r$_0$ first, keep $y_2..y_\ell$ & ePrint Alg.~2, thesis 8.3 &
-  \textbf{leaks} on toy (\lean{toy\_altR0\_leaks})\\
+  \textbf{leaks} on toy (\lean{toy\_altR0\_leaks});\\
+ & & \textbf{close} for ML-DSA (\lean{altR0\_mldsa44})\\
 r$_0$ first, prefix resample on z & ePrint Alg.~3 order &
   leaks on toy (\lean{toy\_r0FirstPrefixZ\_leaks})\\
 z first, then keep $y_2..y_\ell$ on r$_0$ & (variant) &
@@ -76,8 +81,10 @@ z first, then keep $y_2..y_\ell$ on r$_0$ & (variant) &
   signature $(c,z)$, whose probability of being output differs between the keys. No simulator
   that sees only the public key can then be perfect.
 \item The toy has $n=1$. It shows that the property the ePrint claims (perfect zero-knowledge) is
-  false in general. It does \emph{not} show a practical leak for ML-DSA, where the bias is
-  expected to be astronomically small (Section~\ref{sec:altr0}).
+  false in general. It does \emph{not} show a practical leak for ML-DSA: there alt-r0 is provably
+  close to vanilla (Section~\ref{sec:altr0stat}).
+\item \textbf{Close} means: for all but a small fraction of matrices $A$, the alt-r0 signature law
+  is within a small $\ell_1$ distance of vanilla's (table in Section~\ref{sec:altr0stat}).
 \item The ePrint's \S4 argues that alt-r0 is perfectly zero-knowledge. Its simulator keeps
   $z_2,\dots,z_\ell$ and resamples $z_1$ and $c$. That is not what the scheme does: the scheme
   keeps $y_2,\dots,y_\ell$, so the tail of $z = y + c s_1$ changes with every new $c$. The thesis
@@ -197,26 +204,147 @@ r$_0$-first order of ePrint Algorithm~3 (whose kept tail has passed an r$_0$-che
 too (the ePrint and thesis both note this).
 \end{remark}
 
-\section{Alt-r0}\label{sec:altr0}
+\section{Alt-r0: the output law}\label{sec:altr0}
 
-In alt-r0 the tail $t = (y_2,\dots,y_\ell)$ stays fixed until the r$_0$-check passes. Write
-$\rho(t)$ for the probability over fresh $y_1$ and $c$ that the r$_0$-check passes with tail $t$.
-Solving $\nu = \pi + \nu B$ gives visit counts $\nu(y) \propto 1/\rho(t)$, so
+In alt-r0 the polynomials of $y$ outside a set $H$ (in the papers $H = \{1\}$) are kept while the
+r$_0$-check fails; if it passes and the z-check fails, everything is resampled. Write $\rho(y)$
+for the probability, over fresh $y_H$ and $c$, that the r$_0$-check passes; it depends only on
+the kept part $t = y_{\bar H}$ (\lean{AltR0Set.rho}). Call $y$ \emph{stuck} if $\rho(y) = 0$: then
+the loop never ends.
+
+\begin{theorem}[\lean{altR0Set\_law}, \lean{vanilla\_law}]
+Let $P$ be the acceptance probability of one fresh attempt (\lean{pacc}), and assume $P > 0$. The
+probability that alt-r0 outputs $(y,c)$ (within $K$ attempts, $K\to\infty$) tends to
 \[
-  \Pr[\text{output } (y,c)] \;\propto\; \frac{[\,(y,c)\text{ passes both checks}\,]}{\rho(t)},
+  U(y,c) = \frac{\kappa\,[(y,c)\text{ passes}]\,[\rho(y)\neq 0]}{|Y|\,|C|\,\rho(y)},
+  \qquad \kappa = \frac1{1-F},\quad
+  F = \mathop{\mathbb E}_y\Big[\frac{\Pr_c[\text{r}_0 \text{ passes, z fails}]}{\rho(y)};\ \rho(y)\ne0\Big],
 \]
-whereas vanilla outputs every passing $(y,c)$ with the same probability. Intuitively, a tail that
-rarely passes the r$_0$-check is stuck for many attempts and gets many draws of $(y_1, c)$.
-Since $t = z_{2..\ell} - c\,s_{1,2..\ell}$ and $\rho$ depends on $A$ and $s_2$, the weight depends
-on the secret. (This closed form is not yet in the Lean file; the toy instance below checks the
-consequence directly.)
+whereas vanilla's law is $V(y,c) = [(y,c)\text{ passes}]/(|Y||C|P)$.
+\end{theorem}
 
-Alt-r0 is therefore exactly as close to vanilla as $\rho(t)$ is to constant. If
-$|\rho(t)/\bar\rho - 1| \le \delta$ for all relevant $t$, the statistical distance is
-$O(\delta)$. For ML-DSA one expects $\rho(t)$ to be extremely concentrated: $y_1$ alone has
-$2^{18\cdot256}$ values, and the thesis's heuristic gives distances around $2^{-2289}$. That
-heuristic treats the effect of $A$ as a binomial distribution. A rigorous bound averaged over
-$A$, in the spirit of the second-moment argument of \lean{RejOrder.lean}, is open.
+Intuitively, a tail that rarely passes the r$_0$-check is stuck for many attempts and gets many
+draws of $(y_H, c)$. Since $t = z_{\bar H} - c\,s_{1,\bar H}$ and $\rho$ depends on $A$ and $s_2$,
+the weight $1/\rho$ depends on the secret; Section~\ref{sec:toy} turns this into a leak on a toy.
+The proof needs loop semantics that allow stuck states: \lean{Loop.tendsto\_of\_fixed\_off}
+computes the output law from a nonnegative solution of $\nu = \pi + \nu B$ off a closed set of
+non-accepting states (here $\nu(y) = \kappa/(|Y|\rho(y))$), by treating entry into that set as an
+extra output.
+
+\begin{theorem}[\lean{altR0Set\_close}]
+For $\mu_0 > 0$ let $D = \mathop{\mathbb E}_y |\rho(y) - \mu_0| / \mu_0$. If $\mu_0 D < P$ then
+\[
+  \sum_x |U(x) - V(x)| \le \frac{2\mu_0 D}{P - \mu_0 D},
+  \qquad 1 - \sum_x U(x) \le \frac{\mu_0 D}{P - \mu_0 D}.
+\]
+\end{theorem}
+The second quantity is the probability that alt-r0 never terminates. The proof groups $y$ by its
+kept part: within a class $\rho$ is constant, the class average of $\Pr_c[\text{pass}]$ is at most
+$\rho$, and stuck classes never pass.
+
+So alt-r0 is exactly as close to vanilla as $\rho$ is to a constant, on average over tails.
+
+\section{Alt-r0 for ML-DSA: statistically close}\label{sec:altr0stat}
+
+\subsection{The result}
+
+Take $\mu$ to be the probability that a \emph{uniform} $w$ passes the r$_0$-check,
+$\mu = (\#\text{passing values}/q)^{kn}$, and let $\rho_c(t)$ be the probability, over $y_{h_0}$
+uniform in its box, that $A\cdot(y_{h_0}, t)$ passes the r$_0$-check with shift $c s_2$
+(\lean{AltR0.rhoC}).
+
+\begin{theorem}[\lean{AltR0.dev\_mldsa44}, \lean{dev\_mldsa65}, \lean{dev\_mldsa87}]
+For every $c$ with $\|c s_2\|_\infty \le \beta$, every choice of the resampled polynomial $h_0$,
+and $y_{h_0}$ ranging over either the full box or the z-passing box shifted by $c s_1$,
+\[
+  \mathop{\mathbb E}_A \mathop{\mathbb E}_t |\rho_c(t) - \mu| \le \mu\cdot 2^{-123},\
+  \mu \cdot 2^{-145},\ \mu\cdot 2^{-133}
+\]
+for ML-DSA-44, -65, -87, with $A$ uniform in $R_q^{k\times\ell}$ and $t$ uniform.
+\end{theorem}
+
+Combining with Section~\ref{sec:altr0} (the full box controls $D$, the z-passing box gives
+$P \ge \mu p_z - \text{error}$ with $p_z \approx 0.54, 0.62, 0.66$ the z pass probability) and
+Markov's inequality over $A$:
+
+\begin{theorem}[\lean{AltR0Final.altR0\_mldsa44}, \lean{\_65}, \lean{\_87}]
+For any finite challenge set $C$ and $c s_1$, $c s_2$ bounded by $\beta$, and any $h_0$:
+\begin{center}
+\begin{tabular}{@{}lccc@{}}
+\toprule
+ & bad fraction of $A$ & $\sum_x|U(x)-V(x)|$ & $\Pr[\text{never terminates}]$\\
+\midrule
+ML-DSA-44 & $\le 2^{-62}$ & $\le 2^{-58}$ & $\le 2^{-59}$\\
+ML-DSA-65 & $\le 2^{-72}$ & $\le 2^{-70}$ & $\le 2^{-71}$\\
+ML-DSA-87 & $\le 2^{-66}$ & $\le 2^{-64}$ & $\le 2^{-65}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+The last two columns hold for every $A$ outside the bad set. The trade-off between the columns is
+linear and can be moved (\lean{altR0\_mldsa44\_eps}).
+\end{theorem}
+
+These are per-signature distances in the Trans model; over $N$ signatures they add up ($N$ times).
+They are crude: the thesis heuristic suggests about $2^{-2289}$.
+
+\subsection{Why it works: the second moment over $A$}
+
+Fix $c$ (so the shift $v = c s_2$) and write $G \subseteq \Z_q^{kn}$ for the set of $w$ that pass the
+r$_0$-check; $G$ is a product of per-coordinate sets of density $1 - p_R$. Then
+\[
+  \mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
+  = \mathop{\mathbb E}_{y_{h_0}, y'_{h_0}, t}\ \mathop{\mathbb E}_A
+    \big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big],
+  \qquad y = (y_{h_0}, t),\ y' = (y'_{h_0}, t),
+\]
+a sum over pairs of nonces that \emph{share the tail}.
+
+\paragraph{Fourier (\lean{Fourier.lean}, \lean{cov\_le}).} For $A$ uniform, $(Ay, Ay')$ is uniform on
+a subgroup, and
+\[
+  \Big|\mathop{\mathbb E}_A\big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big]\Big|
+  \le \mu^2 \!\!\sum_{\substack{\xi,\xi' \neq 0\\ \xi\cdot Ay + \xi'\cdot Ay' \equiv 0}}\!\!
+      b^{\mathrm{wt}(\xi) + \mathrm{wt}(\xi')},
+  \qquad b = \frac{p_R}{1-p_R} \approx 2^{-10.25}.
+\]
+The point is that $1_G$ is a product: its Fourier coefficient at $\xi$ is a product over
+coordinates, and every nonzero coordinate costs a factor $b$ (the bad set is small). This
+replaces the Bonferroni truncation of \lean{RejOrder.lean}, which with only one fresh polynomial
+gives just $2^{-15}$.
+
+\paragraph{Support (\lean{degS\_sub}, \lean{dualIn\_of\_orth}).} An orthogonal pair $(\xi,\xi')$ has
+its dual (NTT) coordinates on the \emph{degenerate slots} of $(y,y')$. For a pair sharing the tail,
+a slot is degenerate only if $y_{h_0} - y'_{h_0}$ vanishes there or the whole tail vanishes there.
+Each happens with probability at most $1/w$ resp.\ $(2\gamma_1)^{-(\ell-1)}$ by the window argument
+($w$ the width of the head box), so $d$ given slots are all degenerate with probability at most
+$p^d$, $p = 1/w + (2\gamma_1)^{-(\ell-1)}$ (\lean{prob\_Z}, \lean{prob\_deg\_ge}).
+
+\paragraph{Counting (\lean{wsum\_le}, \lean{wcount\_le\_EN}).} The $b$-weighted number of test
+vectors on $d$ slots is bounded by the gap counts of \lean{RejOrder.lean}: a test vector supported
+on coefficient set $T$ with duals on $d$ slots is one of at most $q^{\mathrm{xg}(d,T)}$, and
+$\sum_{|T| = t} q^{\mathrm{xg}}$ is evaluated with \lean{coefK}. Pairs with more than
+$d_m$ degenerate slots are charged the trivial bound $1$.
+
+\paragraph{Numbers.} This gives (\lean{var\_le}, \lean{var\_rel})
+\[
+  \mathop{\mathbb E}_A\mathop{\mathbb E}_t (\rho_c(t)-\mu)^2
+  \le \mu^2 \sum_{d=1}^{d_m}\binom nd p^d E_b(d)^2 + \binom{n}{d_m+1}p^{d_m+1},
+\]
+with $E_b(d)$ the bound on the weighted count. Cleared of denominators, the inequality
+``$\le \mu^2/2^{k}$'' is an integer inequality checked by \lean{decide +kernel}, with $k = 246,
+290, 266$ ($d_m = 19, 19, 17$; $t$ up to $250, 400, 500$ in the gap counts; about $10$\,s each).
+Cauchy--Schwarz halves the exponent (\lean{dev\_rel}).
+
+\subsection{Where the bound is loose}
+
+\begin{itemize}
+\item On slots where the tail is nonzero, orthogonality forces $\xi' = -\xi$ there, so the true
+  weight is $b^{2\,\mathrm{wt}}$; the proof uses $b^{\mathrm{wt}(\xi)}b^{\mathrm{wt}(\xi')}$ for
+  independent $\xi,\xi'$. Using it should roughly double the variance exponent.
+\item The probability that the head difference vanishes at a slot is bounded by $1/(2\gamma_1)
+  \approx 2^{-18}$; the truth is about $1/q \approx 2^{-23}$.
+\item Going from the second moment to $\mathop{\mathbb E}|\rho - \mu|$ halves the exponent.
+\end{itemize}
 
 \section{The toy counterexamples}\label{sec:toy}
 
@@ -263,7 +391,8 @@ parameters, but it is why Algorithm~3 has no toy theorem; its two ingredients ea
 \item \textbf{Sign $\to$ Trans.} The hop from the real scheme to fresh challenges needs the
   commitment $w_1$ to have high min-entropy in every attempt, also with a reused tail. The thesis
   (\S8.4.4) argues this when the first column of $A$ has an invertible entry. Not formalised.
-\item \textbf{Statistical zero-knowledge of alt-r0} for ML-DSA parameters (Section~\ref{sec:altr0}).
+\item \textbf{Many signatures.} The alt-r0 distances are per signature; there is no hybrid
+  theorem over many signatures, and the numbers are far from what is believed true.
 \item \textbf{Timing.} Exactness is about the accepted signature and the number of attempts. With
   alt-z the work in an attempt depends on how many polynomials are resampled, which reveals the
   index of the first failing z polynomial. That is the same kind of information as in
@@ -271,7 +400,7 @@ parameters, but it is why Algorithm~3 has no toy theorem; its two ingredients ea
 \item The toy has $n = 1$; there is no NTT structure.
 \end{itemize}
 
-\section{Map of the Lean file}\label{sec:map}
+\section{Map of the Lean files}\label{sec:map}
 
 \begin{center}
 \begin{tabular}{@{}ll@{}}
@@ -284,11 +413,18 @@ Section & Contents\\
 \lean{LoopFacts} & nonnegativity and bounds of $B$ and $A$\\
 \lean{Policies} & \lean{firstFail}, \lean{altZ}, \lean{altR0}, \lean{r0FirstPrefixZ},
   \lean{zFirstThenY1}, \lean{altZ\_exact}\\
+\lean{AltR0Set} & alt-r0 output law (\lean{altR0Set\_law}), distance (\lean{altR0Set\_close})\\
 \lean{Toy} & the instance, visit vectors, \lean{toy\_*} theorems\\
+\midrule
+\lean{Fourier.lean} & covariance of product-set indicators (\lean{cov\_le})\\
+\lean{AltR0.lean} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_mldsa*}\\
+\lean{AltR0Final.lean} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
 \bottomrule
 \end{tabular}
 \end{center}
-Build: about 70\,s, almost all of it in the kernel checks of the toy.
+\lean{Bathwater.lean} and \lean{Fourier.lean} import only Mathlib; \lean{AltR0.lean} imports
+\lean{RejOrder.lean} and \lean{Fourier.lean}; \lean{AltR0Final.lean} imports \lean{Bathwater.lean}
+and \lean{AltR0.lean}. \lean{build.sh} compiles them in order.
 
 \begin{thebibliography}{9}
 \bibitem{SW20} A.~Sprenkels and B.~Westerbaan. Don't throw your nonces out with the bathwater:
