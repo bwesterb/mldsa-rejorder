@@ -44,9 +44,9 @@ proposal \emph{alt-r0} (r$_0$-check first; on failure resample only $y_1$) is \e
 perfectly zero-knowledge: on a Dilithium-shaped toy instance, two secret keys with the same public
 key output the same signature with probabilities $1/6$ and $1/3$. Two other orderings fail the
 same way. For the real parameters alt-r0 is nevertheless \emph{statistically} close to vanilla:
-for all but a $2^{-62}$ fraction of matrices $A$, the alt-r0 signature distribution is within
-$2^{-58}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-70}$ and $2^{-64}$ for ML-DSA-65/87, with
-bad fractions $2^{-72}$ and $2^{-66}$), per signature. The proof bounds the second moment, over $A$,
+for all but a $2^{-73}$ fraction of matrices $A$, the alt-r0 signature distribution is within
+$2^{-71}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-89}$ and $2^{-93}$ for ML-DSA-65/87, with
+bad fractions $2^{-90}$ and $2^{-94}$), per signature. The proof bounds the second moment, over $A$,
 of the r$_0$ pass probability with the tail of $y$ fixed, by a Fourier expansion of the pass set
 and the uncertainty-principle counting of \lean{RejOrder.lean}.
 \end{abstract}
@@ -253,12 +253,12 @@ $\mu = (\#\text{passing values}/q)^{kn}$, and let $\rho_c(t)$ be the probability
 uniform in its box, that $A\cdot(y_{h_0}, t)$ passes the r$_0$-check with shift $c s_2$
 (\lean{AltR0.rhoC}).
 
-\begin{theorem}[\lean{AltR0.dev\_mldsa44}, \lean{dev\_mldsa65}, \lean{dev\_mldsa87}]
+\begin{theorem}[\lean{AltR0.dev\_mldsa44\_sharp}, \lean{\_65\_sharp}, \lean{\_87\_sharp}]
 For every $c$ with $\|c s_2\|_\infty \le \beta$, every choice of the resampled polynomial $h_0$,
 and $y_{h_0}$ ranging over either the full box or the z-passing box shifted by $c s_1$,
 \[
-  \mathop{\mathbb E}_A \mathop{\mathbb E}_t |\rho_c(t) - \mu| \le \mu\cdot 2^{-123},\
-  \mu \cdot 2^{-145},\ \mu\cdot 2^{-133}
+  \mathop{\mathbb E}_A \mathop{\mathbb E}_t |\rho_c(t) - \mu| \le \mu\cdot 2^{-147},\
+  \mu \cdot 2^{-182},\ \mu\cdot 2^{-190}
 \]
 for ML-DSA-44, -65, -87, with $A$ uniform in $R_q^{k\times\ell}$ and $t$ uniform.
 \end{theorem}
@@ -274,9 +274,9 @@ For any finite challenge set $C$ and $c s_1$, $c s_2$ bounded by $\beta$, and an
 \toprule
  & bad fraction of $A$ & $\sum_x|U(x)-V(x)|$ & $\Pr[\text{never terminates}]$\\
 \midrule
-ML-DSA-44 & $\le 2^{-62}$ & $\le 2^{-58}$ & $\le 2^{-59}$\\
-ML-DSA-65 & $\le 2^{-72}$ & $\le 2^{-70}$ & $\le 2^{-71}$\\
-ML-DSA-87 & $\le 2^{-66}$ & $\le 2^{-64}$ & $\le 2^{-65}$\\
+ML-DSA-44 & $\le 2^{-73}$ & $\le 2^{-71}$ & $\le 2^{-72}$\\
+ML-DSA-65 & $\le 2^{-90}$ & $\le 2^{-89}$ & $\le 2^{-90}$\\
+ML-DSA-87 & $\le 2^{-94}$ & $\le 2^{-93}$ & $\le 2^{-94}$\\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -325,7 +325,20 @@ on coefficient set $T$ with duals on $d$ slots is one of at most $q^{\mathrm{xg}
 $\sum_{|T| = t} q^{\mathrm{xg}}$ is evaluated with \lean{coefK}. Pairs with more than
 $d_m$ degenerate slots are charged the trivial bound $1$.
 
-\paragraph{Numbers.} This gives (\lean{var\_le}, \lean{var\_rel})
+\paragraph{Pairing $\xi'$ with $\xi$ (\lean{AltR0Sharp.lean}).} The covariance bound above weights
+$\xi$ and $\xi'$ independently. In fact, at every degenerate slot the pair is tied:
+where the tail does not vanish, orthogonality forces $\tilde\xi'(k) = -\tilde\xi(k)$; where the
+tail vanishes and both heads are nonzero, $\tilde\xi'(k) = -(\hat y_{h_0}(k)/\hat y'_{h_0}(k))
+\tilde\xi(k)$. So unless a degenerate slot is \emph{exceptional} (tail and one head vanish there),
+$\xi' = \Phi\xi$ for a bijection $\Phi$ that rescales dual coordinates slot by slot
+(\lean{orth\_eq\_pairMap}). With $b^{\mathrm{wt}\,\xi + \mathrm{wt}\,\Phi\xi} \le
+(b^{2\mathrm{wt}\,\xi} + b^{2\mathrm{wt}\,\Phi\xi})/2$ and $\Phi$ permuting the test vectors on the
+degenerate slots, the pair sum is at most the $b^2$-weighted count of single test vectors
+(\lean{pair\_sum\_le}): squared weight, and no square of the count. Exceptional slots occur with
+probability about $2(2\gamma_1)^{-\ell}$ each (\lean{AltR0Exc.lean}, \lean{prob\_deg\_exc});
+triples with one keep the crude bound.
+
+\paragraph{Numbers.} The crude version gives (\lean{var\_le}, \lean{var\_rel})
 \[
   \mathop{\mathbb E}_A\mathop{\mathbb E}_t (\rho_c(t)-\mu)^2
   \le \mu^2 \sum_{d=1}^{d_m}\binom nd p^d E_b(d)^2 + \binom{n}{d_m+1}p^{d_m+1},
@@ -333,14 +346,16 @@ $d_m$ degenerate slots are charged the trivial bound $1$.
 with $E_b(d)$ the bound on the weighted count. Cleared of denominators, the inequality
 ``$\le \mu^2/2^{k}$'' is an integer inequality checked by \lean{decide +kernel}, with $k = 246,
 290, 266$ ($d_m = 19, 19, 17$; $t$ up to $250, 400, 500$ in the gap counts; about $10$\,s each).
-Cauchy--Schwarz halves the exponent (\lean{dev\_rel}).
+Cauchy--Schwarz halves the exponent (\lean{dev\_rel}): $2^{-123}, 2^{-145}, 2^{-133}$. The
+sharp version (\lean{var\_rel\_sharp}, \lean{dev\_rel\_sharp}) has two sums, the main one with
+$b^2$-weighted counts up to $d_1 = 25, 26, 27$ degenerate slots and the exceptional one as before,
+and is checked with $k = 294, 364, 380$; hence $2^{-147}, 2^{-182}, 2^{-190}$.
 
 \subsection{Where the bound is loose}
 
 \begin{itemize}
-\item On slots where the tail is nonzero, orthogonality forces $\xi' = -\xi$ there, so the true
-  weight is $b^{2\,\mathrm{wt}}$; the proof uses $b^{\mathrm{wt}(\xi)}b^{\mathrm{wt}(\xi')}$ for
-  independent $\xi,\xi'$. Using it should roughly double the variance exponent.
+\item Triples with an exceptional slot still use the crude bound; for ML-DSA-44 they limit the
+  variance at about $2^{-298}$, while the main part alone would give about $2^{-395}$.
 \item The probability that the head difference vanishes at a slot is bounded by $1/(2\gamma_1)
   \approx 2^{-18}$; the truth is about $1/q \approx 2^{-23}$.
 \item Going from the second moment to $\mathop{\mathbb E}|\rho - \mu|$ halves the exponent.
@@ -461,14 +476,17 @@ Section & Contents\\
 \midrule
 \lean{Fourier.lean} & covariance of product-set indicators (\lean{cov\_le})\\
 \lean{AltR0.lean} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_mldsa*}\\
+\lean{AltR0Exc.lean} & probability of exceptional slots, \lean{prob\_deg\_exc}\\
+\lean{AltR0Sharp.lean} & pairing map, \lean{pair\_sum\_le}, \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0Final.lean} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
 \lean{MinEntropy.lean} & guessing the commitment with a fresh head, \lean{minEntropy\_mldsa*}\\
 \bottomrule
 \end{tabular}
 \end{center}
 \lean{Bathwater.lean} and \lean{Fourier.lean} import only Mathlib; \lean{AltR0.lean} imports
-\lean{RejOrder.lean} and \lean{Fourier.lean}; \lean{AltR0Final.lean} imports \lean{Bathwater.lean}
-and \lean{AltR0.lean}; \lean{MinEntropy.lean} imports \lean{AltR0.lean}. \lean{build.sh}
+\lean{RejOrder.lean} and \lean{Fourier.lean}; \lean{AltR0Exc.lean} and then \lean{AltR0Sharp.lean}
+build on it; \lean{AltR0Final.lean} imports \lean{Bathwater.lean} and \lean{AltR0Sharp.lean};
+\lean{MinEntropy.lean} imports \lean{AltR0.lean}. \lean{build.sh}
 compiles them in order.
 
 \begin{thebibliography}{9}
