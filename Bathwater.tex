@@ -67,6 +67,7 @@ alt-r0: r$_0$ first, keep $y_2..y_\ell$ & ePrint Alg.~2, thesis 8.3 &
  & & \textbf{close} for ML-DSA (\lean{altR0\_mldsa44})\\
 r$_0$ first, prefix resample on z & ePrint Alg.~3 order &
   leaks on toy (\lean{toy\_r0FirstPrefixZ\_leaks})\\
+Alg.~3: also head-only on r$_0$ & ePrint Alg.~3 & \textbf{close} for ML-DSA (\lean{alg3\_mldsa44})\\
 z first, then keep $y_2..y_\ell$ on r$_0$ & (variant) &
   leaks on toy (\lean{toy\_zFirstThenY1\_leaks})\\
 \bottomrule
@@ -203,6 +204,37 @@ r$_0$-first order of ePrint Algorithm~3 (whose kept tail has passed an r$_0$-che
 ``z first, keep the tail on an r$_0$ failure''. Keeping $y_1$ after a failure at $y_2$ breaks it
 too (the ePrint and thesis both note this).
 \end{remark}
+
+\section{Approximate invariance}\label{sec:approx}
+
+Exactness (Section~\ref{sec:exact}) rests on one fact: if the nonce is uniform at the start of an
+attempt and the attempt rejects, the nonce is again uniform, with mass $1-p$. For policies where
+this holds only approximately, the error does not compound. Let $\pi$ be uniform and
+\[
+  \mathrm{defect}(P) = \big\|\pi B - (1-p)\pi\big\|_1
+  \qquad(\lean{ReusePolicy.defect}),
+\]
+the $\ell_1$ distance between the state after one rejected attempt from a uniform nonce and the
+exact $(1-p)\pi$. Invariant policies have defect $0$ (\lean{defect\_of\_invariant}).
+
+\begin{theorem}[\lean{state\_close}, \lean{outUpTo\_close} etc.]
+Let $p = \Pr[\text{a fresh attempt accepts}] > 0$. For every $k$,
+\[
+  \big\|\mathrm{state}_k - (1-p)^k\pi\big\|_1 \le \mathrm{defect}\cdot\sum_{j<k}(1-p)^j
+  \le \mathrm{defect}/p.
+\]
+If $Q$ is invariant and accepts on the same $(y,c)$ as $P$, then in every attempt the joint law
+of ``attempt $k$ accepts with output $x$'' is within $\mathrm{defect}/p$ of $Q$'s, within the first
+$K$ attempts within $K\cdot\mathrm{defect}/p$, and $P$ is still running after $K$ attempts with
+probability at most $(1-p)^K + \mathrm{defect}/p$.
+\end{theorem}
+
+The proof is one line: with $e_k = \mathrm{state}_k - (1-p)^k\pi$,
+$e_{k+1} = e_k B + (1-p)^k(\pi B - (1-p)\pi)$, and $B$ does not increase the $\ell_1$ norm
+(rows of $B$ sum to at most $1$). No limits or fixed points are needed, and the statements cover
+the joint law of attempt number and output. This is the tool for ePrint Algorithm~3
+(r$_0$ first; resample only $y_1$ on an r$_0$ failure, a prefix on a z failure), whose output law
+has no closed form.
 
 \section{Alt-r0: the output law}\label{sec:altr0}
 
@@ -401,6 +433,40 @@ $d_1 = 27$, $d_2 = 19$ and give $k = 382, 420, 472$.
 \item Going from the second moment to $\mathop{\mathbb E}|\rho - \mu|$ halves the exponent.
 \end{itemize}
 
+\section{ePrint Algorithm 3 for ML-DSA}\label{sec:alg3}
+
+Algorithm~3 checks r$_0$ first; on an r$_0$ failure it resamples only the head $y_1$, and on a
+z failure at polynomial $i$ (the first failing one) it resamples $y_1,\dots,y_i$ and keeps the
+rest (\lean{alg3}; it accepts exactly when vanilla does, \lean{alg3\_accept}). Its output law has
+no closed form, so we use Section~\ref{sec:approx}.
+
+\paragraph{The defect.} With the head the first polynomial, an r$_0$ failure and ``z first fails
+at the head'' keep the same set, so together they move to the head fibre with probability
+$1 - q_h\,\rho_z(\text{tail})$, $q_h = (zw/2\gamma_1)^n$ the probability that the head passes z
+and $\rho_z$ the r$_0$ pass probability with the head in the z-passing box. The full-box $\rho$
+cancels. Each later failure point $i$ contributes a term with $y_2,\dots,y_i$ fresh, which after
+summing over the kept part is again a deviation of $\rho_z$ over a uniform tail. Centring (the
+column sums have mean exactly $1-p$) costs a factor $2$:
+\[
+  \mathrm{defect}(\text{Alg.\,3}) \le 2\ell\cdot X_z(A)
+  \qquad(\lean{alg3\_defect\_le}),
+\]
+with $X_z = \mathop{\mathbb E}_c\mathop{\mathbb E}_t|\rho_{c}(t) - \mu|$ (z-passing head box) as in
+Section~\ref{sec:altr0stat}. The acceptance probability is vanilla's, $\ge \mu(p_z - \varepsilon)$
+for good $A$ (\lean{alg3\_pAcc\_eq}, \lean{pacc\_ge}).
+
+\begin{theorem}[\lean{AltR0Final.alg3\_mldsa44}, \lean{\_65}, \lean{\_87}]
+Outside the same bad set of matrices as for alt-r0 (fractions $2^{-127}$, $2^{-139}$, $2^{-157}$),
+for every number of attempts $k$: the joint law of (accepting attempt $< k$, output) of
+Algorithm~3 is within $k\cdot 2^{-123}$, $k\cdot 2^{-135}$, $k\cdot 2^{-152}$ of vanilla's in
+$\ell_1$, and Algorithm~3 is still running after $k$ attempts with probability at most
+$(1-\mu/2)^k + 2^{-123}$ (resp.\ $2^{-135}$, $2^{-152}$).
+\end{theorem}
+
+The factor $k$ is the price of the joint law; for the output alone, the cutoff $k$ can be taken
+where $(1-\mu/2)^k$ is negligible (a few hundred attempts). The bad set reuses \lean{Bad2}, which
+also asks for the full-box second moment; Algorithm~3 needs only the z-box one.
+
 \section{The toy counterexamples}\label{sec:toy}
 
 The instance (section \lean{Toy}): $q=17$, $n=1$ so $R_q = \Z/17$, $\gamma_2 = 2$
@@ -520,6 +586,7 @@ Section & Contents\\
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
 \lean{AltR0FinalPart} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
+\lean{Alg3Part} & Algorithm 3: \lean{alg3\_defect\_le}, \lean{alg3\_mldsa*}\\
 \lean{MinEntropyPart} & guessing the commitment with a fresh head, \lean{minEntropy\_mldsa*}\\
 \bottomrule
 \end{tabular}

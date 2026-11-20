@@ -7,7 +7,8 @@ import RejOrder
 This file collects, in order:
 
 * `BathwaterCore`: loop semantics, partial reuse of the nonce, the exactness of alt-z, the output
-  law of alt-r0 and its distance to vanilla, and the toy counterexamples.
+  law of alt-r0 and its distance to vanilla, approximate invariance (`ReusePolicy.defect`,
+  `outUpTo_close`), and the toy counterexamples.
 * `FourierPart`: a Fourier bound on the covariance of indicators of product sets.
 * `AltR0Part`: the second moment over `A` of the r₀ pass probability with the tail fixed.
 * `PackingPart`, `NcInvPart`: a slot condition costs `1/q` (packing argument; invertibility in
@@ -21,6 +22,8 @@ This file collects, in order:
 * `AltR0FinalPart`: alt-r0 for ML-DSA-44/65/87 end to end.
 * `MinEntropyPart`: min-entropy of the commitment with a fresh head.
 * `RejOrderFourierPart`: the RejOrder leak bound redone with the product-Fourier bound.
+* `Alg3Part`: ePrint Algorithm 3 (r₀ first, resample the head on an r₀ failure and a prefix on a
+  z failure) is close to vanilla for ML-DSA (`alg3_defect_le`, `alg3_mldsa44` etc.).
 
 It imports `RejOrder.lean` for the module/NTT machinery and the gap counts.
 -/
@@ -1373,6 +1376,168 @@ both keys; each non-exact policy outputs it with different probabilities under t
 Each limit is computed with `Loop.tendsto_outUpTo` from an explicit solution `ν` of `ν = π + ν·B`
 (found with exact linear algebra outside Lean, checked here by the kernel), with `m = 3` and
 `ε = 1/200`. -/
+
+/-! ## Approximate invariance (for ePrint Algorithm 3) -/
+
+section Approx
+variable {ι V C : Type*} [Fintype ι] [DecidableEq ι] [Fintype V] [DecidableEq V] [Nonempty V]
+  [Fintype C] [Nonempty C]
+
+/-- **Defect** of a reuse policy: how far one rejected attempt from a uniform nonce is from
+leaving a uniform nonce, `‖π B − (1 − p) π‖₁`. Invariant policies have defect `0`. -/
+noncomputable def ReusePolicy.defect (P : ReusePolicy ι V C) : ℚ :=
+  ∑ y', |(∑ y, P.loop.B y y') / Fintype.card (ι → V) - (1 - P.pAcc) / Fintype.card (ι → V)|
+
+lemma ReusePolicy.pAcc_nonneg (P : ReusePolicy ι V C) : 0 ≤ P.pAcc := by
+  unfold ReusePolicy.pAcc; positivity
+
+lemma ReusePolicy.pAcc_le_one (P : ReusePolicy ι V C) : P.pAcc ≤ 1 := by
+  unfold ReusePolicy.pAcc
+  rw [div_le_one (by positivity)]
+  have := card_le_univ ((univ : Finset ((ι → V) × C)).filter fun x => P x.1 x.2 = none)
+  rw [Fintype.card_prod] at this
+  exact_mod_cast this
+
+/-- One rejected attempt does not increase the `ℓ¹` norm. -/
+lemma ReusePolicy.step_norm_le (P : ReusePolicy ι V C) (e : (ι → V) → ℚ) :
+    ∑ y', |P.loop.step e y'| ≤ ∑ y, |e y| := by
+  have h := P.loop.norm_iter_le (P.B_nonneg) 1 e
+  simp only [Function.iterate_one] at h
+  refine h.trans (sum_le_sum fun y _ => ?_)
+  have hs : P.loop.survive 1 y ≤ 1 := by
+    have hrow := P.row y
+    have hA : 0 ≤ ∑ x, P.loop.A y x := sum_nonneg fun x _ => P.A_nonneg y x
+    simp only [Loop.survive, mul_one]; linarith
+  calc |e y| * P.loop.survive 1 y ≤ |e y| * 1 := mul_le_mul_of_nonneg_left hs (abs_nonneg _)
+    _ = |e y| := mul_one _
+
+/-- **Approximate invariance gives approximate exactness.** The sub-law of the nonce at the start
+of attempt `k` is within `defect · ∑_{j<k} (1−p)^j` of the exact `(1−p)^k · uniform`. -/
+theorem ReusePolicy.state_close (P : ReusePolicy ι V C) (k : ℕ) :
+    ∑ y, |P.loop.state k y - (1 - P.pAcc) ^ k / Fintype.card (ι → V)|
+      ≤ P.defect * ∑ j ∈ range k, (1 - P.pAcc) ^ j := by
+  have hp1 : 0 ≤ 1 - P.pAcc := by linarith [P.pAcc_le_one]
+  induction k with
+  | zero =>
+    simp [Loop.state, ReusePolicy.loop]
+  | succ k ih =>
+    set e : (ι → V) → ℚ := fun y => P.loop.state k y - (1 - P.pAcc) ^ k / (Fintype.card (ι → V) : ℚ)
+    have hst : ∀ y', P.loop.state (k + 1) y' - (1 - P.pAcc) ^ (k + 1) / (Fintype.card (ι → V) : ℚ)
+        = P.loop.step e y' + (1 - P.pAcc) ^ k *
+          ((∑ y, P.loop.B y y') / (Fintype.card (ι → V) : ℚ) - (1 - P.pAcc) / (Fintype.card (ι → V) : ℚ)) := by
+      intro y'
+      simp only [Loop.state, Function.iterate_succ_apply', Loop.step, e]
+      simp only [sub_mul, sum_sub_distrib, ← mul_sum]
+      ring
+    calc ∑ y', |P.loop.state (k + 1) y' - (1 - P.pAcc) ^ (k + 1) / (Fintype.card (ι → V) : ℚ)|
+        ≤ ∑ y', (|P.loop.step e y'| + (1 - P.pAcc) ^ k *
+            |(∑ y, P.loop.B y y') / (Fintype.card (ι → V) : ℚ) - (1 - P.pAcc) / (Fintype.card (ι → V) : ℚ)|) := by
+          refine sum_le_sum fun y' _ => ?_
+          rw [hst]
+          refine (abs_add_le _ _).trans (le_of_eq ?_)
+          rw [abs_mul, abs_of_nonneg (pow_nonneg hp1 k)]
+      _ = ∑ y', |P.loop.step e y'| + (1 - P.pAcc) ^ k * P.defect := by
+          rw [sum_add_distrib, ← mul_sum, ReusePolicy.defect]
+      _ ≤ P.defect * ∑ j ∈ range k, (1 - P.pAcc) ^ j + (1 - P.pAcc) ^ k * P.defect :=
+          by have h1 := P.step_norm_le e
+             have h2 : ∑ y, |e y| ≤ P.defect * ∑ j ∈ range k, (1 - P.pAcc) ^ j := ih
+             linarith
+      _ = P.defect * ∑ j ∈ range (k + 1), (1 - P.pAcc) ^ j := by
+          rw [sum_range_succ]; ring
+
+omit [Nonempty V] [Nonempty C] in
+lemma ReusePolicy.defect_nonneg (P : ReusePolicy ι V C) : 0 ≤ P.defect :=
+  sum_nonneg fun _ _ => abs_nonneg _
+
+lemma geom_le_inv {p : ℚ} (hp : 0 < p) (hp1 : p ≤ 1) (k : ℕ) :
+    ∑ j ∈ range k, (1 - p) ^ j ≤ 1 / p := by
+  have h : ∑ j ∈ range k, (1 - p) ^ j * p = 1 - (1 - p) ^ k := by
+    induction k with
+    | zero => simp
+    | succ k ih => rw [sum_range_succ, ih, pow_succ]; ring
+  rw [le_div_iff₀ hp, sum_mul, h]
+  linarith [pow_nonneg (by linarith : (0 : ℚ) ≤ 1 - p) k]
+
+/-- Corollary: `≤ defect / p`. -/
+theorem ReusePolicy.state_close' (P : ReusePolicy ι V C) (hp : 0 < P.pAcc) (k : ℕ) :
+    ∑ y, |P.loop.state k y - (1 - P.pAcc) ^ k / Fintype.card (ι → V)| ≤ P.defect / P.pAcc :=
+  (P.state_close k).trans (by
+    rw [div_eq_mul_one_div]
+    exact mul_le_mul_of_nonneg_left (geom_le_inv hp P.pAcc_le_one k) P.defect_nonneg)
+
+/-- **Joint law of attempt number and output.** If `Q` is invariant and accepts on the same
+`(y, c)` as `P`, then in every attempt the two output laws are within `defect(P) / p` in `ℓ¹`. -/
+theorem ReusePolicy.outAt_close (P Q : ReusePolicy ι V C) (hQ : Q.Invariant)
+    (hPQ : ∀ y c, P y c = none ↔ Q y c = none) (hp : 0 < P.pAcc) (k : ℕ) :
+    ∑ x, |P.loop.outAt k x - Q.loop.outAt k x| ≤ P.defect / P.pAcc := by
+  have hpq : P.pAcc = Q.pAcc := by
+    unfold ReusePolicy.pAcc; congr 3; ext x; simp [hPQ]
+  have hA : ∀ y x, P.loop.A y x = Q.loop.A y x := fun y x => by
+    simp only [ReusePolicy.loop, hPQ]
+  set N : ℚ := (Fintype.card (ι → V) : ℚ)
+  set e : (ι → V) → ℚ := fun y => P.loop.state k y - (1 - P.pAcc) ^ k / N
+  have hdiff : ∀ x, P.loop.outAt k x - Q.loop.outAt k x = ∑ y, e y * P.loop.A y x := by
+    intro x
+    simp only [Loop.outAt, exact_of_invariant Q hQ k, e, sub_mul, sum_sub_distrib, hA, hpq]
+    rfl
+  calc ∑ x, |P.loop.outAt k x - Q.loop.outAt k x|
+      ≤ ∑ x, ∑ y, |e y| * P.loop.A y x := by
+        refine sum_le_sum fun x _ => ?_
+        rw [hdiff]
+        refine (abs_sum_le_sum_abs _ _).trans (le_of_eq ?_)
+        refine sum_congr rfl fun y _ => ?_
+        rw [abs_mul, abs_of_nonneg (P.A_nonneg y x)]
+    _ = ∑ y, |e y| * ∑ x, P.loop.A y x := by
+        rw [sum_comm]; simp only [mul_sum]
+    _ ≤ ∑ y, |e y| := by
+        refine sum_le_sum fun y _ => ?_
+        have hrow := P.row y
+        have hB : 0 ≤ ∑ y', P.loop.B y y' := sum_nonneg fun y' _ => P.B_nonneg y y'
+        calc |e y| * ∑ x, P.loop.A y x ≤ |e y| * 1 :=
+              mul_le_mul_of_nonneg_left (by linarith) (abs_nonneg _)
+          _ = |e y| := mul_one _
+    _ ≤ _ := P.state_close' hp k
+
+/-- Within the first `K` attempts: `≤ K · defect / p`. -/
+theorem ReusePolicy.outUpTo_close (P Q : ReusePolicy ι V C) (hQ : Q.Invariant)
+    (hPQ : ∀ y c, P y c = none ↔ Q y c = none) (hp : 0 < P.pAcc) (K : ℕ) :
+    ∑ x, |P.loop.outUpTo K x - Q.loop.outUpTo K x| ≤ K * (P.defect / P.pAcc) := by
+  calc ∑ x, |P.loop.outUpTo K x - Q.loop.outUpTo K x|
+      ≤ ∑ x, ∑ k ∈ range K, |P.loop.outAt k x - Q.loop.outAt k x| := by
+        refine sum_le_sum fun x _ => ?_
+        simp only [Loop.outUpTo, ← sum_sub_distrib]
+        exact abs_sum_le_sum_abs _ _
+    _ = ∑ k ∈ range K, ∑ x, |P.loop.outAt k x - Q.loop.outAt k x| := sum_comm
+    _ ≤ ∑ _k ∈ range K, P.defect / P.pAcc :=
+        sum_le_sum fun k _ => P.outAt_close Q hQ hPQ hp k
+    _ = K * (P.defect / P.pAcc) := by simp
+
+/-- **Still running after `K` attempts**: probability at most `(1 − p)^K + defect / p`. -/
+theorem ReusePolicy.survive_close (P : ReusePolicy ι V C) (hp : 0 < P.pAcc) (K : ℕ) :
+    ∑ y, P.loop.state K y ≤ (1 - P.pAcc) ^ K + P.defect / P.pAcc := by
+  set N : ℚ := (Fintype.card (ι → V) : ℚ)
+  have hN : (0 : ℚ) < N := Nat.cast_pos.mpr Fintype.card_pos
+  have h := P.state_close' hp K
+  have : ∑ y, P.loop.state K y ≤ ∑ y, ((1 - P.pAcc) ^ K / N
+      + |P.loop.state K y - (1 - P.pAcc) ^ K / N|) :=
+    sum_le_sum fun y _ => by linarith [le_abs_self (P.loop.state K y - (1 - P.pAcc) ^ K / N)]
+  rw [sum_add_distrib, sum_const, card_univ, nsmul_eq_mul] at this
+  rw [show (Fintype.card (ι → V) : ℚ) * ((1 - P.pAcc) ^ K / N) = (1 - P.pAcc) ^ K by
+    field_simp [hN.ne']; exact mul_comm _ _] at this
+  linarith
+
+/-- Sanity check: invariant policies have defect `0`. -/
+theorem ReusePolicy.defect_of_invariant (P : ReusePolicy ι V C) (hP : P.Invariant) :
+    P.defect = 0 := by
+  have h1 := exact_of_invariant P hP 1
+  refine sum_eq_zero fun y' _ => ?_
+  have := congrFun h1 y'
+  simp only [Loop.state, Function.iterate_one, Loop.step, ReusePolicy.loop, pow_one] at this
+  rw [abs_eq_zero, sub_eq_zero, ← this, sum_div]
+  refine sum_congr rfl fun y _ => ?_
+  simp only [ReusePolicy.loop]; ring
+
+end Approx
 
 namespace Toy
 
@@ -7436,3 +7601,689 @@ end RejFourier
 end
 
 end RejOrderFourierPart
+
+section Alg3Part
+
+open Finset
+
+noncomputable section
+
+set_option linter.unusedSectionVars false
+set_option linter.unusedSimpArgs false
+
+namespace Bathwater
+
+/-! ## Part B. ePrint Algorithm 3 -/
+
+section Alg3Policy
+variable {ι V C : Type*} [Fintype ι] [LinearOrder ι] [Fintype V] [DecidableEq V]
+
+/-- ePrint Algorithm 3: r₀-check first; on an r₀ failure keep everything except the head `h₀`;
+if r₀ passes and polynomial `i` is the first to fail its z-check, keep `y_j` for `j > i`. -/
+def alg3 (h₀ : ι) (zc : ι → V → C → Bool) (r0 : (ι → V) → C → Bool) : ReusePolicy ι V C :=
+  fun y c =>
+  if r0 y c then
+    match firstFail zc y c with
+    | some i => some (univ.filter fun j => i < j)
+    | none => none
+  else some (univ.erase h₀)
+
+theorem alg3_accept (h₀ : ι) (zc : ι → V → C → Bool) (r0 : (ι → V) → C → Bool) (y : ι → V)
+    (c : C) : alg3 h₀ zc r0 y c = none ↔ pass zc r0 y c = true := by
+  unfold alg3 pass
+  rcases hf : firstFail zc y c with _ | i
+  · have := (firstFail_eq_none zc y c).mp hf
+    cases hr : r0 y c <;> simp [this]
+  · have h1 := (firstFail_eq_some.mp hf).1
+    have : ¬ ∀ i, zc i (y i) c = true := fun h => by simp [h i] at h1
+    cases hr : r0 y c <;> simp [this]
+
+end Alg3Policy
+
+/-! ## Part C (generic). The defect of Algorithm 3 -/
+
+section Alg3Defect
+variable {ι V C : Type*} [Fintype ι] [LinearOrder ι] [Fintype V] [DecidableEq V] [Nonempty V]
+  [Fintype C] [Nonempty C]
+
+/-- Total mass of the column sums of `B`: `N (1 − p)`. -/
+lemma ReusePolicy.col_total (P : ReusePolicy ι V C) :
+    ∑ y', ∑ y, P.loop.B y y' = Fintype.card (ι → V) * (1 - P.pAcc) := by
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  have hA : ∑ y, ∑ x, P.loop.A y x =
+      (((univ : Finset ((ι → V) × C)).filter fun x => P x.1 x.2 = none).card : ℚ) /
+        Fintype.card C := by
+    rw [sum_comm, card_filter]; push_cast; rw [sum_div]
+    refine sum_congr rfl fun x _ => ?_
+    simp only [ReusePolicy.loop]
+    rw [Finset.sum_eq_single x.1]
+    · split_ifs <;> simp_all
+    · intro y _ hy; rw [if_neg]; rintro ⟨h, _⟩; exact hy h.symm
+    · simp
+  rw [sum_comm]
+  have hrow : ∀ y, ∑ y', P.loop.B y y' = 1 - ∑ x, P.loop.A y x := fun y => by
+    have := P.row y; linarith
+  rw [sum_congr rfl fun y _ => hrow y, sum_sub_distrib, hA]
+  unfold ReusePolicy.pAcc
+  simp only [sum_const, card_univ, nsmul_eq_mul, mul_one]
+  field_simp
+
+/-- Centring: if `∑ f = N a`, then for any constant `m`,
+`∑ |f/N − a/N| ≤ 2 ∑ |f/N − m/N|`. -/
+lemma centre_le {Y : Type*} [Fintype Y] (f : Y → ℚ) (N a m : ℚ) (hN : 0 < N)
+    (hcard : (Fintype.card Y : ℚ) = N) (hf : ∑ y, f y = N * a) :
+    ∑ y, |f y / N - a / N| ≤ 2 * ∑ y, |f y / N - m / N| := by
+  set g := fun y => f y / N - m / N with hg_def
+  have hg : ∑ y, g y = a - m := by
+    simp only [g, sum_sub_distrib, ← sum_div, hf, sum_const, card_univ, nsmul_eq_mul, hcard]
+    field_simp
+  have h1 : ∀ y, |f y / N - a / N| ≤ |g y| + |a - m| / N := fun y => by
+    have : f y / N - a / N = g y + (m - a) / N := by simp only [g]; ring
+    rw [this]; refine (abs_add_le _ _).trans (le_of_eq ?_)
+    rw [abs_div, abs_of_pos hN, abs_sub_comm m a]
+  calc ∑ y, |f y / N - a / N| ≤ ∑ y, (|g y| + |a - m| / N) := sum_le_sum fun y _ => h1 y
+    _ = ∑ y, |g y| + |a - m| := by
+        rw [sum_add_distrib, sum_const, card_univ, nsmul_eq_mul, hcard]; field_simp
+    _ ≤ ∑ y, |g y| + ∑ y, |g y| := by
+        rw [← hg]; linarith [abs_sum_le_sum_abs g (univ : Finset Y)]
+    _ = 2 * ∑ y, |f y / N - m / N| := by ring
+
+/-- Averaging a function of the resampled coordinates over a reject that keeps `K` gives its mean. -/
+lemma keepProb_const (K : Finset ι) (g : (ι → V) → ℚ)
+    (hg : ∀ y y', (∀ j, j ∉ K → y' j = y j) → g y' = g y) (y' : ι → V) :
+    ∑ y, keepProb K y y' * g y = (∑ y, g y) / Fintype.card (ι → V) := by
+  have hV : (0 : ℚ) < Fintype.card V := by exact_mod_cast Fintype.card_pos
+  have hY : (Fintype.card (ι → V) : ℚ) =
+      (Fintype.card V : ℚ) ^ K.card * (Fintype.card V : ℚ) ^ (Kᶜ).card := by
+    rw [← pow_add, card_add_card_compl]; simp [Fintype.card_fun]
+  have := sum_agree K g hg y'
+  rw [hY, ← div_div, ← this, sum_div]
+  refine sum_congr rfl fun y _ => ?_
+  unfold keepProb; split_ifs <;> simp [div_eq_mul_inv, mul_comm]
+
+/-- Tower property for the head: against a weight that ignores `h₀`, a function and its head
+average give the same sum. -/
+lemma head_tower (h₀ : ι) (φ h : (ι → V) → ℚ)
+    (hφ : ∀ y y', (∀ j, j ≠ h₀ → y' j = y j) → φ y' = φ y) :
+    ∑ y, φ y * h y = ∑ y, φ y * ∑ y'', keepProb (univ.erase h₀) y'' y * h y'' := by
+  have hV : (0 : ℚ) < Fintype.card V := by exact_mod_cast Fintype.card_pos
+  have hc : (univ.erase h₀)ᶜ = {h₀} := by ext; simp
+  have e : ∀ y, ∑ y'', keepProb (univ.erase h₀) y'' y * h y'' =
+      (∑ y'', if ∀ j ∉ ({h₀} : Finset ι), y'' j = y j then h y'' else 0) /
+        (Fintype.card V : ℚ) ^ ({h₀} : Finset ι).card := by
+    intro y; rw [sum_div]; refine sum_congr rfl fun y'' _ => ?_
+    unfold keepProb; rw [hc]
+    by_cases hh : ∀ j ∉ ({h₀} : Finset ι), y'' j = y j
+    · rw [if_pos hh, if_pos (fun j hj => (hh j (by simpa using (mem_erase.mp hj).1)).symm)]; ring
+    · rw [if_neg hh, if_neg]
+      · simp
+      intro h'; apply hh; intro j hj
+      exact (h' j (mem_erase.mpr ⟨by simpa using hj, mem_univ _⟩)).symm
+  simp only [e, mul_div_assoc']
+  rw [← sum_div, AltR0Set.sum_class (H := {h₀}) h φ
+    (fun y y' hyy' => hφ y y' (fun j hj => hyy' j (by simpa using hj)))]
+  field_simp
+
+
+/-- `0/1` value of a Boolean. -/
+def bq (b : Bool) : ℚ := if b then 1 else 0
+
+lemma bq_nonneg (b : Bool) : 0 ≤ bq b := by unfold bq; split_ifs <;> norm_num
+lemma bq_le_one (b : Bool) : bq b ≤ 1 := by unfold bq; split_ifs <;> norm_num
+
+variable (h₀ : ι) (zc : ι → V → C → Bool) (r0 : (ι → V) → C → Bool) (μ : ℚ)
+
+/-- One step of the Markov kernel of `alg3` for challenge `c`, from `y` to `y'`. -/
+def Mfun (c : C) (y y' : ι → V) : ℚ :=
+  match alg3 h₀ zc r0 y c with
+  | none => 0
+  | some K => keepProb K y y'
+
+/-- Indicator that `i` is the first z failure. -/
+def Ff (c : C) (i : ι) (y : ι → V) : ℚ := if firstFail zc y c = some i then 1 else 0
+
+/-- Indicator that `i` is the first z failure among the non-head polynomials. -/
+def Gf (c : C) (i : ι) (y : ι → V) : ℚ :=
+  if zc i (y i) c = false ∧ ∀ j, j < i → j ≠ h₀ → zc j (y j) c = true then 1 else 0
+
+/-- The head average of `1[head passes z] · (1[r₀] − μ)`, as a function of the kept part. -/
+def headDev (c : C) (y' : ι → V) : ℚ :=
+  ∑ y, keepProb (univ.erase h₀) y y' * (bq (zc h₀ (y h₀) c) * (bq (r0 y c) - μ))
+
+/-- `W = E_c E_y |headDev|`. -/
+def alg3W : ℚ :=
+  (∑ c, ∑ y, |headDev h₀ zc r0 μ c y|) / (Fintype.card C * Fintype.card (ι → V))
+
+/-- The constant part of the column sum for challenge `c`. -/
+def mC (c : C) : ℚ :=
+  (∑ y : ι → V, (1 - μ * bq (zc h₀ (y h₀) c))) / Fintype.card (ι → V) +
+    ∑ i ∈ univ.erase h₀, μ * (∑ y, Ff zc c i y) / Fintype.card (ι → V)
+
+variable {h₀}
+
+lemma M_eq (hmin : ∀ j, h₀ ≤ j) (c : C) (y y' : ι → V) :
+    Mfun h₀ zc r0 c y y' =
+      keepProb (univ.erase h₀) y y' * (1 - bq (zc h₀ (y h₀) c) * bq (r0 y c)) +
+      ∑ i ∈ univ.erase h₀, keepProb (univ.filter fun j => i < j) y y' *
+        (bq (r0 y c) * Ff zc c i y) := by
+  unfold Mfun alg3
+  cases hr : r0 y c
+  · simp [bq]
+  · rcases hf : firstFail zc y c with _ | i
+    · have := (firstFail_eq_none zc y c).mp hf
+      simp [bq, Ff, hf, this]
+    · obtain ⟨hi, hlt⟩ := firstFail_eq_some.mp hf
+      by_cases hih : i = h₀
+      · subst hih
+        have hK : (univ.filter fun j => i < j) = univ.erase i := by
+          ext j; simp [lt_iff_le_and_ne, hmin j, eq_comm]
+        have h0 : ∀ j ∈ univ.erase i, Ff zc c j y = 0 := by
+          intro j hj; simp only [Ff, hf, Option.some.injEq]
+          rw [if_neg (fun h => (mem_erase.mp hj).1 h.symm)]
+        rw [sum_eq_zero (fun j hj => by rw [h0 j hj, mul_zero, mul_zero])]
+        simp only [if_true]
+        rw [hK]
+        simp [bq, hi]
+      · have hz : zc h₀ (y h₀) c = true := hlt h₀ (lt_of_le_of_ne (hmin i) (Ne.symm hih))
+        rw [sum_eq_single i]
+        · simp [bq, Ff, hf, hz]
+        · intro j _ hj; simp [Ff, hf, Ne.symm hj]
+        · intro h; exact absurd (mem_erase.mpr ⟨hih, mem_univ _⟩) h
+
+lemma kp_nonneg (K : Finset ι) (y y' : ι → V) : 0 ≤ keepProb K y y' := by
+  unfold keepProb; split_ifs <;> positivity
+
+lemma Gf_nonneg (c : C) (i : ι) (y : ι → V) : 0 ≤ Gf h₀ zc c i y := by
+  unfold Gf; split_ifs <;> norm_num
+
+lemma Gf_le_one (c : C) (i : ι) (y : ι → V) : Gf h₀ zc c i y ≤ 1 := by
+  unfold Gf; split_ifs <;> norm_num
+
+lemma Ff_eq (hmin : ∀ j, h₀ ≤ j) (c : C) {i : ι} (hi : i ≠ h₀) (y : ι → V) :
+    Ff zc c i y = bq (zc h₀ (y h₀) c) * Gf h₀ zc c i y := by
+  have hlt : h₀ < i := lt_of_le_of_ne (hmin i) (Ne.symm hi)
+  have key : firstFail zc y c = some i ↔ zc h₀ (y h₀) c = true ∧
+      (zc i (y i) c = false ∧ ∀ j, j < i → j ≠ h₀ → zc j (y j) c = true) := by
+    rw [firstFail_eq_some]
+    constructor
+    · rintro ⟨h1, h2⟩; exact ⟨h2 h₀ hlt, h1, fun j hj _ => h2 j hj⟩
+    · rintro ⟨h0, h1, h2⟩
+      refine ⟨h1, fun j hj => ?_⟩
+      by_cases hjh : j = h₀
+      · subst hjh; exact h0
+      · exact h2 j hj hjh
+  unfold Ff Gf bq
+  by_cases hz : zc h₀ (y h₀) c = true
+  · simp only [key, hz, true_and, if_true, one_mul]
+  · simp [key, hz]
+
+/-- **Column sums of Algorithm 3**, for a fixed challenge: a constant, minus the head deviation at
+`y'`, plus for each non-head `i` an average of the head deviation over a reject at `i`. -/
+lemma col_eq (hmin : ∀ j, h₀ ≤ j) (c : C) (y' : ι → V) :
+    ∑ y, Mfun h₀ zc r0 c y y' = mC h₀ zc μ c - headDev h₀ zc r0 μ c y' +
+      ∑ i ∈ univ.erase h₀, ∑ y, keepProb (univ.filter fun j => i < j) y y' * Gf h₀ zc c i y *
+        headDev h₀ zc r0 μ c y := by
+  simp only [M_eq zc r0 hmin c, sum_add_distrib]
+  rw [sum_comm (s := (univ : Finset (ι → V))) (t := univ.erase h₀)]
+  have hA : ∑ y, keepProb (univ.erase h₀) y y' * (1 - bq (zc h₀ (y h₀) c) * bq (r0 y c)) =
+      (∑ y : ι → V, (1 - μ * bq (zc h₀ (y h₀) c))) / Fintype.card (ι → V) - headDev h₀ zc r0 μ c y' := by
+    have e : ∀ y, keepProb (univ.erase h₀) y y' * (1 - bq (zc h₀ (y h₀) c) * bq (r0 y c)) =
+        keepProb (univ.erase h₀) y y' * (1 - μ * bq (zc h₀ (y h₀) c)) -
+          keepProb (univ.erase h₀) y y' * (bq (zc h₀ (y h₀) c) * (bq (r0 y c) - μ)) :=
+      fun y => by ring
+    rw [sum_congr rfl fun y _ => e y, sum_sub_distrib, keepProb_const]
+    · rfl
+    · intro y y'' h
+      rw [h h₀ (by simp)]
+  have hB : ∀ i ∈ univ.erase h₀, ∑ y, keepProb (univ.filter fun j => i < j) y y' *
+      (bq (r0 y c) * Ff zc c i y) = μ * (∑ y, Ff zc c i y) / Fintype.card (ι → V) +
+      ∑ y, keepProb (univ.filter fun j => i < j) y y' * Gf h₀ zc c i y *
+        headDev h₀ zc r0 μ c y := by
+    intro i hi
+    have hih : i ≠ h₀ := (mem_erase.mp hi).1
+    have e : ∀ y, keepProb (univ.filter fun j => i < j) y y' * (bq (r0 y c) * Ff zc c i y) =
+        keepProb (univ.filter fun j => i < j) y y' * (μ * Ff zc c i y) +
+          (keepProb (univ.filter fun j => i < j) y y' * Gf h₀ zc c i y) *
+            (bq (zc h₀ (y h₀) c) * (bq (r0 y c) - μ)) := by
+      intro y; rw [Ff_eq zc hmin c hih]; ring
+    rw [sum_congr rfl fun y _ => e y, sum_add_distrib, keepProb_const, ← mul_sum, mul_div_assoc,
+      head_tower h₀]
+    · rfl
+    · intro y y'' h
+      have hK : ∀ j ∈ (univ.filter fun j => i < j), j ≠ h₀ := by
+        intro j hj; rw [mem_filter] at hj
+        exact ne_of_gt (lt_of_le_of_lt (hmin i) hj.2)
+      have h1 : keepProb (univ.filter fun j => i < j) y'' y' =
+          keepProb (univ.filter fun j => i < j) y y' := by
+        unfold keepProb
+        exact if_congr ⟨fun H j hj => (H j hj).trans (h j (hK j hj)),
+          fun H j hj => (H j hj).trans (h j (hK j hj)).symm⟩ rfl rfl
+      have h2 : Gf h₀ zc c i y'' = Gf h₀ zc c i y := by
+        unfold Gf
+        refine if_congr ?_ rfl rfl
+        rw [h i hih]
+        exact and_congr Iff.rfl ⟨fun H j hj hjh => (h j hjh) ▸ H j hj hjh,
+          fun H j hj hjh => (h j hjh).symm ▸ H j hj hjh⟩
+      rw [h1, h2]
+    · intro y y'' h
+      have h' : ∀ j, j ≤ i → y'' j = y j := fun j hj => h j (by simpa using hj)
+      unfold Ff
+      by_cases hf : firstFail zc y c = some i
+      · rw [if_pos hf, if_pos (firstFail_congr hf h')]
+      · rw [if_neg hf, if_neg (fun hf' => hf (firstFail_congr hf' fun j hj => (h' j hj).symm))]
+  rw [hA, sum_congr rfl hB, sum_add_distrib]
+  unfold mC
+  ring
+
+/-- For a fixed challenge, the column sums are within `|ι| · ∑ |headDev|` of a constant in `ℓ¹`. -/
+lemma col_bound (hmin : ∀ j, h₀ ≤ j) (c : C) :
+    ∑ y', |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c| ≤
+      Fintype.card ι * ∑ y, |headDev h₀ zc r0 μ c y| := by
+  set hd := headDev h₀ zc r0 μ c
+  have hpt : ∀ y', |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c| ≤
+      |hd y'| + ∑ i ∈ univ.erase h₀, ∑ y, keepProb (univ.filter fun j => i < j) y y' * |hd y| := by
+    intro y'
+    rw [col_eq zc r0 μ hmin c y']
+    have : mC h₀ zc μ c - hd y' + ∑ i ∈ univ.erase h₀, ∑ y,
+        keepProb (univ.filter fun j => i < j) y y' * Gf h₀ zc c i y * hd y - mC h₀ zc μ c =
+        -hd y' + ∑ i ∈ univ.erase h₀, ∑ y,
+          keepProb (univ.filter fun j => i < j) y y' * Gf h₀ zc c i y * hd y := by ring
+    rw [this]
+    refine (abs_add_le _ _).trans ?_
+    rw [abs_neg]
+    refine add_le_add le_rfl ((abs_sum_le_sum_abs _ _).trans (sum_le_sum fun i _ => ?_))
+    refine (abs_sum_le_sum_abs _ _).trans (sum_le_sum fun y _ => ?_)
+    rw [abs_mul, abs_mul, abs_of_nonneg (kp_nonneg _ _ _), abs_of_nonneg (Gf_nonneg zc c i y)]
+    rw [mul_assoc]
+    refine mul_le_mul_of_nonneg_left ?_ (kp_nonneg _ _ _)
+    have := Gf_le_one (h₀ := h₀) zc c i y
+    have := abs_nonneg (hd y)
+    nlinarith
+  calc ∑ y', |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c|
+      ≤ ∑ y', (|hd y'| + ∑ i ∈ univ.erase h₀, ∑ y,
+          keepProb (univ.filter fun j => i < j) y y' * |hd y|) := sum_le_sum fun y' _ => hpt y'
+    _ = ∑ y, |hd y| + ∑ _i ∈ univ.erase h₀, ∑ y, |hd y| := by
+        rw [sum_add_distrib]; congr 1
+        rw [sum_comm]; refine sum_congr rfl fun i _ => ?_
+        rw [sum_comm]; refine sum_congr rfl fun y _ => ?_
+        rw [← sum_mul, keepProb_sum, one_mul]
+    _ = Fintype.card ι * ∑ y, |hd y| := by
+        rw [sum_const, card_erase_of_mem (mem_univ _), card_univ, nsmul_eq_mul]
+        have : 1 ≤ Fintype.card ι := Fintype.card_pos_iff.mpr ⟨h₀⟩
+        rw [Nat.cast_sub this]; push_cast; ring
+
+lemma col_sum (y' : ι → V) : ∑ y, (alg3 h₀ zc r0).loop.B y y' =
+    (∑ c, ∑ y, Mfun h₀ zc r0 c y y') / Fintype.card C := by
+  simp only [ReusePolicy.loop, Mfun]
+  rw [sum_comm, sum_div]
+  refine sum_congr rfl fun c _ => ?_
+  rw [← mul_sum, one_div, inv_mul_eq_div]; try rfl
+
+/-- **Part C, generic.** If the head `h₀` is the least index, the defect of Algorithm 3 is at most
+`2 |ι| W`, where `W = E_c E_y |headDev|` measures how far the head-averaged r₀ pass indicator,
+restricted to heads that pass their z-check, is from `μ`. (Any constant `μ`.) -/
+theorem alg3_defect (hmin : ∀ j, h₀ ≤ j) :
+    (alg3 h₀ zc r0).defect ≤ 2 * Fintype.card ι * alg3W h₀ zc r0 μ := by
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  set N : ℚ := (Fintype.card (ι → V) : ℚ) with hN_def
+  set mbar : ℚ := (∑ c, mC h₀ zc μ c) / Fintype.card C
+  have hcent := centre_le (fun y' => ∑ y, (alg3 h₀ zc r0).loop.B y y') N
+    (1 - (alg3 h₀ zc r0).pAcc) mbar hN rfl ((alg3 h₀ zc r0).col_total)
+  unfold ReusePolicy.defect
+  refine hcent.trans ?_
+  have hpt : ∀ y', |(∑ y, (alg3 h₀ zc r0).loop.B y y') / N - mbar / N| ≤
+      (∑ c, |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c|) / (Fintype.card C * N) := by
+    intro y'
+    have e : (∑ y, (alg3 h₀ zc r0).loop.B y y') / N - mbar / N =
+        (∑ c, (∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c)) / (Fintype.card C * N) := by
+      rw [col_sum, sum_sub_distrib]; field_simp; simp only [mbar]; field_simp
+    rw [e, abs_div, abs_of_pos (mul_pos hC hN)]
+    exact div_le_div_of_nonneg_right (abs_sum_le_sum_abs _ _) (mul_pos hC hN).le
+  calc 2 * ∑ y', |(∑ y, (alg3 h₀ zc r0).loop.B y y') / N - mbar / N|
+      ≤ 2 * ∑ y', (∑ c, |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c|) / (Fintype.card C * N) := by
+        gcongr with y' _; exact hpt y'
+    _ = 2 * (∑ c, ∑ y', |∑ y, Mfun h₀ zc r0 c y y' - mC h₀ zc μ c|) / (Fintype.card C * N) := by
+        rw [← sum_div, sum_comm]; ring
+    _ ≤ 2 * (∑ c, Fintype.card ι * ∑ y, |headDev h₀ zc r0 μ c y|) / (Fintype.card C * N) := by
+        gcongr with c _; exact col_bound zc r0 μ hmin c
+    _ = 2 * Fintype.card ι * alg3W h₀ zc r0 μ := by
+        unfold alg3W; rw [← mul_sum]; ring
+
+/-- The acceptance probability of Algorithm 3 is vanilla's. -/
+lemma alg3_pAcc : (alg3 h₀ zc r0).pAcc = AltR0Set.pacc (pass zc r0) := by
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  unfold ReusePolicy.pAcc AltR0Set.pacc AltR0Set.sacc
+  rw [← sum_div, div_div, mul_comm (Fintype.card C : ℚ)]
+  congr 1
+  rw [card_filter, Fintype.sum_prod_type]; push_cast
+  refine sum_congr rfl fun y _ => sum_congr rfl fun c _ => ?_
+  simp only [alg3_accept]
+
+end Alg3Defect
+
+end Bathwater
+
+/-! ## The ML-DSA instance -/
+
+namespace AltR0Final
+open RejOrder Matrix
+
+section Alg3Inst
+
+variable {q : ℕ} [NeZero q] [Fact q.Prime] {n K L : ℕ} {C : Type*} [Fintype C] {γ₁ β : ℕ}
+
+/-- The per-block z-check `‖y_j + (c·s₁)_j‖∞ < γ₁ − β`, with `u c = c·s₁`. -/
+def zcB (γ₁ β : ℕ) (u : C → Fin (L * n) → ℤ) (j : Fin L) (x : V γ₁ n) (c : C) : Bool :=
+  decide (∀ s, |x.1 s + u c (finProdFinEquiv (j, s))| < (γ₁ : ℤ) - β)
+
+lemma zok_eq (u : C → Fin (L * n) → ℤ) (y : Fin L → V γ₁ n) (c : C) :
+    zok γ₁ β u y c = decide (∀ j, zcB γ₁ β u j (y j) c = true) := by
+  unfold zok zcB
+  simp only [decide_eq_true_eq]
+  congr 1
+  apply propext
+  constructor
+  · intro h j s
+    have := h (finProdFinEquiv (j, s))
+    simpa [flat] using this
+  · intro h c'
+    have := h (finProdFinEquiv.symm c').1 (finProdFinEquiv.symm c').2
+    rw [Prod.mk.eta, Equiv.apply_symm_apply] at this
+    simpa [flat] using this
+
+lemma pass_eq (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (a : Fin K → Fin L → Fin n → ZMod q) :
+    Bathwater.pass (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) =
+      fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c := by
+  funext y c; unfold Bathwater.pass; rw [zok_eq]; congr 1; exact decide_eq_decide.mpr Iff.rfl
+
+lemma zcB_iff (hβ : β < γ₁) (u : C → Fin (L * n) → ℤ) (j : Fin L) (x : V γ₁ n) (c : C) :
+    zcB γ₁ β u j x c = true ↔ x.1 ∈ AltR0.hbox (zlo γ₁ β j (u c)) (zw γ₁ β) := by
+  unfold zcB AltR0.hbox
+  simp only [decide_eq_true_eq, Fintype.mem_piFinset, z_coord hβ, zlo]
+
+/-- The head deviation of Algorithm 3 for ML-DSA: `|Z|/|box| · (ρ_z(tail) − μ)`. -/
+lemma headDev_eq [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ : ℕ) (hβ : β < γ₁)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (a : Fin K → Fin L → Fin n → ZMod q)
+    (h₀ : Fin L) (μ : ℚ) (c : C) (hu : Bounded β (u c)) (y' : Fin L → V γ₁ n) :
+    Bathwater.headDev h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) μ c y' =
+      ((AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)).card / (box γ₁ n).card : ℚ) *
+        (AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β) h₀ a (tailOf γ₁ h₀ y') - μ) := by
+  set T := tailOf γ₁ h₀ y'
+  set Z := AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)
+  set P : (Fin n → ℤ) → (Fin L → Fin n → ℤ) → Prop := fun x t =>
+    modMat mulmat a *ᵥ RejOrder.zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c))
+  have hZpos : (0 : ℚ) < Z.card := by
+    rw [AltR0.card_hbox]; unfold zw
+    have : 0 < 2 * (γ₁ - β) - 1 := by omega
+    positivity
+  have hZB : Z ⊆ box γ₁ n := zbox_sub hβ h₀ hu
+  have hB : (0 : ℚ) < (box γ₁ n).card :=
+    lt_of_lt_of_le hZpos (by exact_mod_cast card_le_card hZB)
+  unfold Bathwater.headDev
+  rw [sum_split' h₀ (fun x t => if t = T then
+    (if x ∈ Z then ((if P x t then (1 : ℚ) else 0) - μ) else 0) / (box γ₁ n).card else 0)]
+  swap
+  · intro y
+    have hc : (univ.erase h₀)ᶜ = {h₀} := by ext; simp
+    have e1 : (∀ j ∈ univ.erase h₀, y' j = y j) ↔ tailOf γ₁ h₀ y = T := by
+      rw [tailOf_eq_iff]
+      constructor
+      · intro h j hj; exact (h j (by simpa using hj)).symm
+      · intro h j hj; exact (h j (by simpa using hj)).symm
+    have e2 := zcB_iff hβ u h₀ (y h₀) c
+    have e3 : r0 mulmat γ₁ γ₂ β v a y c = true ↔ P (y h₀).1 (tailOf γ₁ h₀ y) := by
+      simp only [r0, decide_eq_true_eq, flat_eq h₀ y, P]
+    unfold Bathwater.keepProb Bathwater.bq
+    rw [hc, card_singleton, pow_one, Fintype.card_coe]
+    by_cases h1 : tailOf γ₁ h₀ y = T
+    · rw [if_pos (e1.mpr h1), if_pos h1]
+      by_cases h2 : (y h₀).1 ∈ Z
+      · rw [if_pos (e2.mpr h2), if_pos h2]
+        by_cases h3 : P (y h₀).1 (tailOf γ₁ h₀ y)
+        · rw [if_pos (e3.mpr h3), if_pos h3]; ring
+        · rw [if_neg (fun h => h3 (e3.mp h)), if_neg h3]; ring
+      · rw [if_neg (fun h => h2 (e2.mp h)), if_neg h2]; ring
+    · rw [if_neg (fun h => h1 (e1.mp h)), if_neg h1, zero_mul]
+  have hT : T ∈ AltR0.tbox γ₁ h₀ := tailOf_mem h₀ y'
+  have e4 : ∀ x ∈ box γ₁ n, (∑ t ∈ AltR0.tbox γ₁ h₀, if t = T then
+      (if x ∈ Z then ((if P x t then (1 : ℚ) else 0) - μ) else 0) / (box γ₁ n).card else 0) =
+      (if x ∈ Z then ((if P x T then (1 : ℚ) else 0) - μ) else 0) / (box γ₁ n).card := by
+    intro x _
+    rw [sum_ite_eq' _ T, if_pos hT]
+  rw [sum_congr rfl e4, ← sum_div, sum_ite_mem, inter_eq_right.mpr hZB, sum_sub_distrib,
+    sum_const, nsmul_eq_mul, rhoC_eq]
+  show _ = (Z.card : ℚ) / _ * ((∑ x ∈ Z, if P x T then (1 : ℚ) else 0) / Z.card - μ)
+  field_simp
+
+/-- `W ≤ X_z`: the head deviation of Algorithm 3 is controlled by the z-box deviation of `alt-r0`. -/
+lemma alg3W_le [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ} (hβ : β < γ₁)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (hu : ∀ c, Bounded β (u c))
+    (a : Fin K → Fin L → Fin n → ZMod q) (h₀ : Fin L) :
+    Bathwater.alg3W h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) (mu q γ₂ β mb K n) ≤
+      Xz mulmat γ₁ γ₂ β mb u v h₀ a := by
+  set μ := mu q γ₂ β mb K n
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hB : (0 : ℚ) < (box γ₁ n).card := by
+    have : (box γ₁ n).Nonempty := by
+      obtain ⟨x⟩ := (inferInstance : Nonempty (V γ₁ n)); exact ⟨x.1, x.2⟩
+    exact_mod_cast this.card_pos
+  have hT : (0 : ℚ) < (AltR0.tbox (n := n) γ₁ h₀).card := by
+    have : (AltR0.tbox (n := n) γ₁ h₀).Nonempty := by
+      obtain ⟨x⟩ := (inferInstance : Nonempty (V γ₁ n))
+      exact ⟨_, tailOf_mem h₀ (fun _ => x)⟩
+    exact_mod_cast this.card_pos
+  set ρ : C → (Fin L → Fin n → ℤ) → ℚ := fun c t =>
+    AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β) h₀ a t
+  have hc : ∀ c, ∑ y, |Bathwater.headDev h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) μ c y| ≤
+      (box γ₁ n).card * ∑ t ∈ AltR0.tbox γ₁ h₀, |ρ c t - μ| := by
+    intro c
+    have hZB := zbox_sub hβ h₀ (hu c)
+    have hq0 : (0 : ℚ) ≤ ((AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)).card / (box γ₁ n).card : ℚ) :=
+      by positivity
+    have hq1 : ((AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)).card / (box γ₁ n).card : ℚ) ≤ 1 :=
+      (div_le_one hB).mpr (by exact_mod_cast card_le_card hZB)
+    calc ∑ y, |Bathwater.headDev h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) μ c y|
+        ≤ ∑ y : Fin L → V γ₁ n, |ρ c (tailOf γ₁ h₀ y) - μ| := by
+          refine sum_le_sum fun y _ => ?_
+          rw [headDev_eq mulmat γ₂ hβ u v a h₀ μ c (hu c), abs_mul, abs_of_nonneg hq0]
+          exact mul_le_of_le_one_left (abs_nonneg _) hq1
+      _ = (box γ₁ n).card * ∑ t ∈ AltR0.tbox γ₁ h₀, |ρ c t - μ| := by
+          rw [sum_split h₀ (fun _ t => |ρ c t - μ|), sum_const, nsmul_eq_mul]
+  unfold Bathwater.alg3W Xz avg
+  rw [card_Y h₀, div_le_div_iff₀ (by positivity) hC]
+  calc (∑ c, ∑ y, |Bathwater.headDev h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) μ c y|) *
+        Fintype.card C
+      ≤ (∑ c, (box γ₁ n).card * ∑ t ∈ AltR0.tbox γ₁ h₀, |ρ c t - μ|) * Fintype.card C := by
+        gcongr with c _; exact hc c
+    _ = _ := by
+        rw [← mul_sum, ← sum_div]
+        field_simp
+        rfl
+
+/-- **Part C, ML-DSA instance.** With the head `h₀` least in the order of `Fin L`, the defect of
+Algorithm 3 is at most `2 L X_z`. -/
+theorem alg3_defect_le [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ} (hβ : β < γ₁)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (hu : ∀ c, Bounded β (u c))
+    (a : Fin K → Fin L → Fin n → ZMod q) (h₀ : Fin L) (hmin : ∀ j, h₀ ≤ j) :
+    (Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)).defect ≤
+      2 * L * Xz mulmat γ₁ γ₂ β mb u v h₀ a := by
+  have h := Bathwater.alg3_defect (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a) (mu q γ₂ β mb K n) hmin
+  rw [Fintype.card_fin] at h
+  refine h.trans ?_
+  have := alg3W_le (γ₂ := γ₂) (mb := mb) mulmat hβ u v hu a h₀
+  have hL : (0 : ℚ) ≤ 2 * L := by positivity
+  exact mul_le_mul_of_nonneg_left this hL
+
+/-- **Part D, step 1.** Algorithm 3 accepts with vanilla's probability. -/
+lemma alg3_pAcc_eq [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (a : Fin K → Fin L → Fin n → ZMod q)
+    (h₀ : Fin L) :
+    (Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)).pAcc =
+      Bathwater.AltR0Set.pacc (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c) := by
+  rw [Bathwater.alg3_pAcc, pass_eq]
+
+/-- **Part D, general form.** For a matrix that is not `Bad2` at level `ε < p_z`, in every
+attempt window `k`, Algorithm 3's joint law of (attempt number, output) over the first `k`
+attempts is within `k · 2Lε/(p_z − ε)` of vanilla's in `ℓ¹`, and it is still running after `k`
+attempts with probability at most `(1 − μ(p_z − ε))^k + 2Lε/(p_z − ε)`. -/
+theorem alg3_main [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ}
+    (hp : Params q γ₁ γ₂ β mb) (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ)
+    (hu : ∀ c, Bounded β (u c)) (h₀ : Fin L) (hmin : ∀ j, h₀ ≤ j) {ε : ℚ} (hε : 0 < ε)
+    (a : Fin K → Fin L → Fin n → ZMod q) (ha : ¬ Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε a)
+    (hpz : ε < pz γ₁ β L n) (k : ℕ) :
+    ∑ x, |(Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)).loop.outUpTo k x -
+        (Bathwater.vanilla (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c)).loop.outUpTo
+          k x| ≤ k * (2 * L * ε / (pz γ₁ β L n - ε)) ∧
+      ∑ y, (Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)).loop.state k y ≤
+        (1 - mu q γ₂ β mb K n * (pz γ₁ β L n - ε)) ^ k + 2 * L * ε / (pz γ₁ β L n - ε) ∧
+      mu q γ₂ β mb K n * (pz γ₁ β L n - ε) ≤
+        (Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)).pAcc := by
+  set μ := mu q γ₂ β mb K n
+  set P := Bathwater.alg3 h₀ (zcB γ₁ β u) (r0 mulmat γ₁ γ₂ β v a)
+  have hμ : 0 < μ := mu_pos hp
+  have hη : 0 < μ * ε := mul_pos hμ hε
+  simp only [Bad2, not_or, not_le] at ha
+  have hZa := Xz_lt_of_Xz2 mulmat u v h₀ a hη ha.2
+  have hdef : P.defect ≤ 2 * L * (μ * ε) :=
+    (alg3_defect_le mulmat hp.β_lt_γ₁ u v hu a h₀ hmin).trans
+      (mul_le_mul_of_nonneg_left hZa.le (by positivity))
+  have hpacc : μ * (pz γ₁ β L n - ε) ≤ P.pAcc := by
+    rw [alg3_pAcc_eq]
+    have := pacc_ge mulmat hp u v hu a h₀
+    linarith
+  have hgap : 0 < μ * (pz γ₁ β L n - ε) := mul_pos hμ (by linarith)
+  have hp0 : 0 < P.pAcc := lt_of_lt_of_le hgap hpacc
+  have hratio : P.defect / P.pAcc ≤ 2 * L * ε / (pz γ₁ β L n - ε) := by
+    calc P.defect / P.pAcc ≤ 2 * L * (μ * ε) / (μ * (pz γ₁ β L n - ε)) :=
+          div_le_div₀ (by positivity) hdef hgap hpacc
+      _ = 2 * L * ε / (pz γ₁ β L n - ε) := by
+          rw [mul_left_comm, mul_div_mul_left _ _ hμ.ne']
+  have hPQ : ∀ y c, P y c = none ↔
+      Bathwater.vanilla (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c) y c = none := by
+    intro y c
+    rw [Bathwater.alg3_accept, pass_eq]
+    unfold Bathwater.vanilla
+    split_ifs with h <;> simp [h]
+  refine ⟨?_, ?_, hpacc⟩
+  · refine (P.outUpTo_close _ (Bathwater.vanilla_invariant _) hPQ hp0 k).trans ?_
+    exact mul_le_mul_of_nonneg_left hratio (Nat.cast_nonneg _)
+  · refine (P.survive_close hp0 k).trans (add_le_add ?_ hratio)
+    exact pow_le_pow_left₀ (by linarith [P.pAcc_le_one]) (by linarith) k
+
+end Alg3Inst
+
+/-! ## Headlines -/
+
+/-- Shared tail of the three headlines. -/
+lemma headline_aux {L : ℕ} {μ pz pAcc ε B : ℚ} (k : ℕ) (hμ : 0 < μ) (hgap : 1 / 2 ≤ pz - ε)
+    (hB : 2 * L * ε / (1 / 2) ≤ B) (hε : 0 ≤ ε) (hp1 : pAcc ≤ 1) (hpacc : μ * (pz - ε) ≤ pAcc)
+    {d s : ℚ} (hd : d ≤ k * (2 * L * ε / (pz - ε)))
+    (hs : s ≤ (1 - μ * (pz - ε)) ^ k + 2 * L * ε / (pz - ε)) :
+    d ≤ k * B ∧ s ≤ (1 - μ / 2) ^ k + B := by
+  have hb : 2 * L * ε / (pz - ε) ≤ B :=
+    (div_le_div_of_nonneg_left (by positivity) (by norm_num) hgap).trans hB
+  refine ⟨hd.trans (mul_le_mul_of_nonneg_left hb (Nat.cast_nonneg _)), hs.trans (add_le_add ?_ hb)⟩
+  refine pow_le_pow_left₀ (by linarith) ?_ k
+  nlinarith
+
+/-- **ML-DSA-44, Algorithm 3.** Take `ε = 2^-127` and the head `y₀`. For at least a `1 − 2^-127`
+fraction of matrices `A` (the same bad set as `altR0_mldsa44`), for every `k`: over the first `k`
+attempts the joint law of (attempt number, output) of Algorithm 3 is within `k · 2^-123` of
+vanilla's in `ℓ¹`, and Algorithm 3 is still running after `k` attempts with probability at most
+`(1 − μ/2)^k + 2^-123`. -/
+theorem alg3_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
+    (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c)) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v 0
+        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 127 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v 0
+          (1 / 2 ^ 127) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 17) 78 u)
+              (r0 negacyclic (2 ^ 17) 95232 78 v a)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+              zok (2 ^ 17) 78 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 123) ∧
+        ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 17) 78 u)
+              (r0 negacyclic (2 ^ 17) 95232 78 v a)).loop.state k y ≤
+          (1 - mu 8380417 95232 78 44 4 256 / 2) ^ k + 1 / 2 ^ 123 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa44 u v hu 0 (ε := 1 / 2 ^ 127) (by norm_num)
+    (avg_X2_44 v hv 0) (avg_Xz2_44 u v hv 0)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_44
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 1 / 2 ^ 127 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 127 ≤ 27 / 50 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := alg3_main negacyclic params_mldsa44 u v hu 0 (fun j => Fin.zero_le j)
+    (by norm_num) a ha (by linarith) k
+  exact headline_aux k (mu_pos params_mldsa44) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+/-- **ML-DSA-65, Algorithm 3.** `ε = 2^-140`: bad fraction `≤ 2^-139`; for every other `A` and
+every `k`, `ℓ¹ ≤ k · 2^-135` and still running after `k` attempts `≤ (1 − μ/2)^k + 2^-135`. -/
+theorem alg3_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
+    (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c)) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v 0
+        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 139 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v 0
+          (1 / 2 ^ 140) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 19) 196 u)
+              (r0 negacyclic (2 ^ 19) 261888 196 v a)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+              zok (2 ^ 19) 196 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 135) ∧
+        ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 19) 196 u)
+              (r0 negacyclic (2 ^ 19) 261888 196 v a)).loop.state k y ≤
+          (1 - mu 8380417 261888 196 16 6 256 / 2) ^ k + 1 / 2 ^ 135 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa65 u v hu 0 (ε := 1 / 2 ^ 140) (by norm_num)
+    (avg_X2_65 v hv 0) (avg_Xz2_65 u v hv 0)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_65
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 1 / 2 ^ 140 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 140 ≤ 3 / 5 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := alg3_main negacyclic params_mldsa65 u v hu 0 (fun j => Fin.zero_le j)
+    (by norm_num) a ha (by linarith) k
+  exact headline_aux k (mu_pos params_mldsa65) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+/-- **ML-DSA-87, Algorithm 3.** `ε = 2^-157`: bad fraction `≤ 2^-157`; for every other `A` and
+every `k`, `ℓ¹ ≤ k · 2^-152` and still running after `k` attempts `≤ (1 − μ/2)^k + 2^-152`. -/
+theorem alg3_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
+    (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c)) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v 0
+        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 157 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v 0
+          (1 / 2 ^ 157) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 19) 120 u)
+              (r0 negacyclic (2 ^ 19) 261888 120 v a)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+              zok (2 ^ 19) 120 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 152) ∧
+        ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 19) 120 u)
+              (r0 negacyclic (2 ^ 19) 261888 120 v a)).loop.state k y ≤
+          (1 - mu 8380417 261888 120 16 8 256 / 2) ^ k + 1 / 2 ^ 152 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa87 u v hu 0 (ε := 1 / 2 ^ 157) (by norm_num)
+    (avg_X2_87 v hv 0) (avg_Xz2_87 u v hv 0)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_87
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 1 / 2 ^ 157 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 157 ≤ 3 / 5 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := alg3_main negacyclic params_mldsa87 u v hu 0 (fun j => Fin.zero_le j)
+    (by norm_num) a ha (by linarith) k
+  exact headline_aux k (mu_pos params_mldsa87) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+end AltR0Final
+
+end
+
+end Alg3Part
