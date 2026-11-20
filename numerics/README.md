@@ -1,7 +1,8 @@
 # Numerics for the alt-r0 bounds and for items 3 and 4
 
-Exact rational arithmetic in Python (`fractions`), mirroring the Lean definitions. Nothing
-here is checked in Lean except what `kcheck.py` reproduces.
+Exact rational arithmetic in Python (`fractions`), mirroring the Lean definitions. `kcheck.py`,
+`item3check.py` and `item4check.py` reproduce integer inequalities that `Bathwater.lean` checks
+with `decide +kernel`; the tables below are the estimates that led to them.
 
 - `gapeval.py`: Python copies of RejOrder's `GapEval` definitions (`sumF`, `digit`, `geomK`,
   `compK`, `NBk`, `GBk`, `sumGB`, `packGB`, `coefK`).
@@ -9,7 +10,9 @@ here is checked in Lean except what `kcheck.py` reproduces.
   `Bathwater.lean` checks with `decide +kernel` (`num_44_full` etc.). It uses the row-factorised
   count `ENr` (`wcount_le_rows`). Prints the largest passing `k`. Usage:
   `python3 kcheck.py 44,330,25,19 65,330,26,19 87,330,27,17` (set, `e`, `d₁`, `d₂`).
-- `step0.py`: the "step 0" measurements for Fable's `item3.md` and `item4.md`.
+- `item3check.py`: the integer inequality of the `1/q` route (`numQ_44_full` etc.), current
+  alt-r0 headlines.
+- `item4check.py`: the integer inequality of the Fourier route for `RejOrder` (`numR_44` etc.).
 
 All quantities are log₂. Running time: a few seconds each.
 
@@ -52,17 +55,15 @@ Pairs `(y, y')` independent; a degenerate slot has probability `ρ = (q+1)/(2γ�
 weights `E_b(d)²` (factorised, `b = p_R/(1−p_R)`); pairs with more than `d_m` degenerate slots
 charged the trivial bound. Relative variance
 `V = ∑_{d=1}^{d_m} C(n,d) ρ^d E_b(d)² + C(n, d_m+1) ρ^(d_m+1) / μ²`, and
-`leak ≲ (2/p_R + L·n) · √V` (item4.md step 5).
+`leak ≲ (2/p_R + L·n) · √V`.
 
-| | relative variance | `d_m` | leak estimate | RejOrder now |
-|---|---|---|---|---|
-| ML-DSA-44 | 2^-835 | 19 | 2^-406 | 2^-289 |
-| ML-DSA-65 | 2^-1122 | 19 | 2^-549 | 2^-418 |
-| ML-DSA-87 | 2^-1486 | 19 | 2^-730 | 2^-568 |
+| | relative variance | `d_m` | leak estimate | proved (`leak_mldsa44_fourier` etc.) | old route |
+|---|---|---|---|---|---|
+| ML-DSA-44 | 2^-835 | 19 | 2^-406 | 2^-405 | 2^-289 |
+| ML-DSA-65 | 2^-1122 | 19 | 2^-549 | 2^-547 | 2^-418 |
+| ML-DSA-87 | 2^-1486 | 19 | 2^-730 | 2^-729 | 2^-568 |
 
 Caveats:
 
-- The `l = L·n` prefactor uses the crude `∑_j D_m(Bset j)` bound (item4.md step 5).
+- The `l = L·n` prefactor uses the crude `∑_j D_m(Bset j)` bound.
 - `ρ` uses `q + 1` lines per slot as in `RejOrder.deg_prob`.
-- Not yet checked: that `deg_prob` with `S₀ = ∅` gives exactly the form needed, and the
-  uniformity over the sub-events `Bset j`.

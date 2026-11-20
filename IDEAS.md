@@ -1,8 +1,8 @@
 # Ideas: faster signing and better bounds
 
 Status: brainstorm. Nothing here is checked in Lean. Performance numbers come from an
-operation-count model (see "Cost model" at the end), not from benchmarks. Related sketches:
-`alg13.md` (Algorithm 3), `item3.md` (`1/q` per slot), `item4.md` (`RejOrder` via Fourier).
+operation-count model (see "Cost model" at the end), not from benchmarks. Algorithm 3, the `1/q`
+slot bound and the Fourier route for `RejOrder` are done: see `Bathwater.tex` and `RejOrder.tex`.
 
 Notation: `k × ℓ` matrix `A`, `n = 256`, nonce `y ∈ (−γ₁, γ₁]^{ℓn}`, `w = Ay`,
 `c = H(μ ‖ HighBits(w))`, `z = y + c·s₁`, `β = τ·η` so `‖c·s₁‖∞, ‖c·s₂‖∞ ≤ β` always.
@@ -61,7 +61,7 @@ statement would be a two-line corollary of `lowBits_shift` and `|c·s| ≤ β`:
   the z-borderline set a function of `y` only; neither involves the key. Which borderline
   coefficient fails first is the kind of view `RejOrder` studies, but the view is richer here
   (it includes the borderline pattern). It is not covered by `RejOrder` as it stands.
-  With the product-set approach of `item4.md` a three-way classification per coordinate
+  With the product-set approach of `RejFourier` (in `Bathwater.lean`) a three-way classification per coordinate
   (interior / borderline-pass / borderline-fail) is again a product event, so an extension
   looks possible; not worked out.
 - Accepted attempt: the number of r₀-borderline coefficients of the accepted `w` must not
@@ -135,7 +135,7 @@ Restart with a completely fresh `y` after `T` consecutive r₀ failures on the s
   "epochs" (each epoch = one tail, at most `T` head draws) which are i.i.d. Epoch analysis is
   probably simpler than the fixed-point route: an epoch outputs `(y,c)` with probability
   `[pass]·(1 − (1−ρ)^T)/(ρ·N·|C|)`-shaped weights, and epochs are independent.
-- With `alg13.md` Part A (defect bound) the cap is not needed for the statistical-distance
+- With the defect bound (`ReusePolicy.defect`, `outUpTo_close`) the cap is not needed for the statistical-distance
   result; it matters for B2 and for implementations that want a hard bound on the loop.
 
 ## P4. Exact prefix resampling at coefficient granularity (minor)
@@ -191,7 +191,7 @@ from the secret is all that is used.
 To do: state the averaged closeness theorem (`E_a` of the `ℓ¹` distance and of the
 non-termination probability). `close` gives the bound for one `a` only when
 `D = μ p_z − Xz − X > 0`; for the average, split on `Bad2` and bound the distance by 2 on the
-bad set, or go through `alg13.md` Part A whose bounds are linear in the defect.
+bad set, or go through the defect bound (`outUpTo_close`), which is linear in the defect.
 Keep `main2` as the per-matrix statement; it answers a different question
 ("is *this* key fine?" cannot be decided by it either, since the bad set is not explicit).
 
@@ -245,7 +245,7 @@ geometric sum: it is of size `b` only for `x` near multiples of a fixed step, an
 smaller elsewhere. Using the true weight `D(x)` turns the weighted count into
 `Σ_ξ Π_r D(ξ_r)` over test vectors with dual support on `S`, which depends on the *values*
 of the coefficients of `ξ`, not only on its Hamming weight. Bounding that needs shortness
-arguments in the ideal lattice (as in `item3.md`, but for the test vectors). Potentially a
+arguments in the ideal lattice (as in `Packing.card_coset_le`, but for the test vectors). Potentially a
 large gain; no concrete plan.
 
 ## B4. Fourth moment (probably not worth it)
@@ -262,7 +262,7 @@ quadruples of nonces sharing a tail. B2 gets the same benefit more cheaply.
 2. P1 as an implementation experiment (it is exact; measure it, then decide how much timing
    analysis it deserves).
 3. B2 on paper, then the one Lean theorem; decide then whether P3 is needed.
-4. Algorithm 3 (`alg13.md`), then P2 on top of it.
+4. ~~Algorithm 3~~ (done: `alg3_mldsa44` etc.), then P2 on top of it.
 5. Items 2, 3, 4 as before; B3 only if someone wants a research problem.
 
 ---

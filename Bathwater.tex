@@ -330,6 +330,16 @@ $2^{-71}$.)
 These are per-signature distances in the Trans model; over $N$ signatures they add up ($N$ times).
 They are crude: the thesis heuristic suggests about $2^{-2289}$.
 
+\paragraph{Per attempt (section \lean{AltR0JointPart}).} The theorem above is about the output law
+in the limit. Section~\ref{sec:approx} gives more: alt-r0's defect is at most $2X(A)$
+(\lean{altR0Set\_defect\_le}; the column sum at $y'$ is $1-\rho(\text{tail of }y')$ plus a constant
+from z failures, which resample everything), so for the same good matrices and every $k$
+(\lean{altR0\_joint\_mldsa44}, \lean{\_65}, \lean{\_87}):
+the joint law of (accepting attempt $<k$, output) is within $k\cdot 2^{-125}$, $k\cdot 2^{-138}$,
+$k\cdot 2^{-155}$ of vanilla's, and alt-r0 is still running after $k$ attempts with probability
+at most $(1-\mu/2)^k + 2^{-125}$ (resp.\ $2^{-138}$, $2^{-155}$). This covers the number of
+attempts, which is what timing reveals, and justifies an attempt cap such as CIRCL's $576$.
+
 \subsection{Why it works: the second moment over $A$}
 
 Fix $c$ (so the shift $v = c s_2$) and write $G \subseteq \Z_q^{kn}$ for the set of $w$ that pass the
@@ -586,6 +596,7 @@ Section & Contents\\
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
 \lean{AltR0FinalPart} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
+\lean{AltR0JointPart} & alt-r0 per attempt, \lean{altR0\_joint\_mldsa*}\\
 \lean{Alg3Part} & Algorithm 3: \lean{alg3\_defect\_le}, \lean{alg3\_mldsa*}\\
 \lean{MinEntropyPart} & guessing the commitment with a fresh head, \lean{minEntropy\_mldsa*}\\
 \bottomrule

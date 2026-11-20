@@ -22,6 +22,8 @@ This file collects, in order:
 * `AltR0FinalPart`: alt-r0 for ML-DSA-44/65/87 end to end.
 * `MinEntropyPart`: min-entropy of the commitment with a fresh head.
 * `RejOrderFourierPart`: the RejOrder leak bound redone with the product-Fourier bound.
+* `AltR0JointPart`: alt-r0 per attempt (joint law of attempt number and output, survival), via
+  the defect bound (`altR0_joint_mldsa44` etc.).
 * `Alg3Part`: ePrint Algorithm 3 (r₀ first, resample the head on an r₀ failure and a prefix on a
   z failure) is close to vanilla for ML-DSA (`alg3_defect_le`, `alg3_mldsa44` etc.).
 
@@ -8287,3 +8289,325 @@ end AltR0Final
 end
 
 end Alg3Part
+
+section AltR0JointPart
+
+/-!
+# alt-r0 per attempt: joint law of (attempt number, output) close to vanilla's
+
+`alt-r0` (`Bathwater.altR0Set {h₀} r0 zok`): on an r₀ failure resample only the head `h₀`; on a
+z failure resample everything; accept if both pass. Its defect is at most `2 E_y|ρ(y) − μ|`
+for any constant `μ` (`altR0Set_defect_le`), which for ML-DSA is `≤ 2 X` (`altR0Set_defect_le_X`).
+-/
+
+open Finset
+
+noncomputable section
+
+set_option linter.unusedSectionVars false
+set_option linter.unusedSimpArgs false
+
+namespace Bathwater.AltR0Joint
+
+section Generic
+variable {ι V C : Type*} [Fintype ι] [DecidableEq ι] [Fintype V] [DecidableEq V] [Nonempty V]
+  [Fintype C] [Nonempty C]
+
+/-- Total mass of the column sums of `B`: `N (1 − p)`. (As `ReusePolicy.col_total`, without the order on `ι`.) -/
+lemma col_total (P : ReusePolicy ι V C) :
+    ∑ y', ∑ y, P.loop.B y y' = Fintype.card (ι → V) * (1 - P.pAcc) := by
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  have hA : ∑ y, ∑ x, P.loop.A y x =
+      (((univ : Finset ((ι → V) × C)).filter fun x => P x.1 x.2 = none).card : ℚ) /
+        Fintype.card C := by
+    rw [sum_comm, card_filter]; push_cast; rw [sum_div]
+    refine sum_congr rfl fun x _ => ?_
+    simp only [ReusePolicy.loop]
+    rw [Finset.sum_eq_single x.1]
+    · split_ifs <;> simp_all
+    · intro y _ hy; rw [if_neg]; rintro ⟨h, _⟩; exact hy h.symm
+    · simp
+  rw [sum_comm]
+  have hrow : ∀ y, ∑ y', P.loop.B y y' = 1 - ∑ x, P.loop.A y x := fun y => by
+    have := P.row y; linarith
+  rw [sum_congr rfl fun y _ => hrow y, sum_sub_distrib, hA]
+  unfold ReusePolicy.pAcc
+  simp only [sum_const, card_univ, nsmul_eq_mul, mul_one]
+  field_simp
+
+/-- Centring (as `Bathwater.centre_le`, restated here outside the ordered section). -/
+lemma centre_le {Y : Type*} [Fintype Y] (f : Y → ℚ) (N a m : ℚ) (hN : 0 < N)
+    (hcard : (Fintype.card Y : ℚ) = N) (hf : ∑ y, f y = N * a) :
+    ∑ y, |f y / N - a / N| ≤ 2 * ∑ y, |f y / N - m / N| := by
+  set g := fun y => f y / N - m / N with hg_def
+  have hg : ∑ y, g y = a - m := by
+    simp only [g, sum_sub_distrib, ← sum_div, hf, sum_const, card_univ, nsmul_eq_mul, hcard]
+    field_simp
+  have h1 : ∀ y, |f y / N - a / N| ≤ |g y| + |a - m| / N := fun y => by
+    have : f y / N - a / N = g y + (m - a) / N := by simp only [g]; ring
+    rw [this]; refine (abs_add_le _ _).trans (le_of_eq ?_)
+    rw [abs_div, abs_of_pos hN, abs_sub_comm m a]
+  calc ∑ y, |f y / N - a / N| ≤ ∑ y, (|g y| + |a - m| / N) := sum_le_sum fun y _ => h1 y
+    _ = ∑ y, |g y| + |a - m| := by
+        rw [sum_add_distrib, sum_const, card_univ, nsmul_eq_mul, hcard]; field_simp
+    _ ≤ ∑ y, |g y| + ∑ y, |g y| := by
+        rw [← hg]; linarith [abs_sum_le_sum_abs g (univ : Finset Y)]
+    _ = 2 * ∑ y, |f y / N - m / N| := by ring
+
+/-- **Column sums of alt-r0**: `1 − ρ(y') + E_y[Pr_c(r₀ pass ∧ z fail)]`. Only `ρ` varies. -/
+lemma col_eq (H : Finset ι) (r0 zok : (ι → V) → C → Bool) (y' : ι → V) :
+    ∑ y, (altR0Set H r0 zok).loop.B y y' =
+      1 - AltR0Set.rho H r0 y' + (∑ y, AltR0Set.zfail r0 zok y) / Fintype.card (ι → V) := by
+  have hW : (0 : ℚ) < (Fintype.card V : ℚ) ^ H.card :=
+    pow_pos (by exact_mod_cast Fintype.card_pos) _
+  simp only [AltR0Set.B_eq, sum_add_distrib, ← sum_div]
+  have e : ∀ y : ι → V, (if ∀ j ∉ H, y j = y' j then (1 - AltR0Set.sacc r0 y) /
+      (Fintype.card V : ℚ) ^ H.card else 0) =
+      ((if ∀ j ∉ H, y j = y' j then (1 : ℚ) else 0) -
+        (if ∀ j ∉ H, y j = y' j then AltR0Set.sacc r0 y else 0)) /
+        (Fintype.card V : ℚ) ^ H.card := fun y => by split_ifs <;> simp [sub_div]
+  rw [sum_congr rfl fun y _ => e y, ← sum_div, sum_sub_distrib, AltR0Set.card_class,
+    AltR0Set.rho_eq, sub_div, div_self hW.ne']
+
+/-- **Defect of alt-r0** with resampled set `H`: for any constant `μ`, at most twice the mean
+deviation `E_y |ρ(y) − μ|`. -/
+theorem altR0Set_defect_le (H : Finset ι) (r0 zok : (ι → V) → C → Bool) (μ : ℚ) :
+    (altR0Set H r0 zok).defect ≤
+      2 * ((∑ y, |AltR0Set.rho H r0 y - μ|) / Fintype.card (ι → V)) := by
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  set N : ℚ := (Fintype.card (ι → V) : ℚ) with hN_def
+  set Z : ℚ := (∑ y, AltR0Set.zfail r0 zok y) / N
+  have hcent := centre_le (fun y' => ∑ y, (altR0Set H r0 zok).loop.B y y') N
+    (1 - (altR0Set H r0 zok).pAcc) (1 - μ + Z) hN rfl (col_total _)
+  unfold ReusePolicy.defect
+  refine hcent.trans (le_of_eq ?_)
+  congr 1
+  rw [sum_div]
+  refine sum_congr rfl fun y' _ => ?_
+  simp only [col_eq]
+  rw [show (1 - AltR0Set.rho H r0 y' + Z) / N - (1 - μ + Z) / N =
+      -((AltR0Set.rho H r0 y' - μ) / N) by ring, abs_neg, abs_div, abs_of_pos hN]
+
+/-- alt-r0 accepts exactly when both checks pass. -/
+lemma altR0Set_accept (H : Finset ι) (r0 zok : (ι → V) → C → Bool) (y : ι → V) (c : C) :
+    altR0Set H r0 zok y c = none ↔ (r0 y c && zok y c) = true := by
+  unfold altR0Set; cases r0 y c <;> cases zok y c <;> simp
+
+/-- The acceptance probability of alt-r0 is vanilla's. -/
+lemma altR0Set_pAcc (H : Finset ι) (r0 zok : (ι → V) → C → Bool) :
+    (altR0Set H r0 zok).pAcc = AltR0Set.pacc (fun y c => r0 y c && zok y c) := by
+  have hC : (0 : ℚ) < Fintype.card C := by exact_mod_cast Fintype.card_pos
+  have hN : (0 : ℚ) < Fintype.card (ι → V) := by exact_mod_cast Fintype.card_pos
+  unfold ReusePolicy.pAcc AltR0Set.pacc AltR0Set.sacc
+  rw [← sum_div, div_div, mul_comm (Fintype.card C : ℚ)]
+  congr 1
+  rw [card_filter, Fintype.sum_prod_type]; push_cast
+  refine sum_congr rfl fun y _ => sum_congr rfl fun c _ => ?_
+  simp only [altR0Set_accept]
+
+end Generic
+
+end Bathwater.AltR0Joint
+
+/-! ## The ML-DSA instance -/
+
+namespace AltR0Final
+open RejOrder Matrix
+
+section AltR0JointInst
+
+variable {q : ℕ} [NeZero q] [Fact q.Prime] {n K L : ℕ} {C : Type*} [Fintype C] {γ₁ β : ℕ}
+
+/-- **Defect of alt-r0 for ML-DSA** (any head `h₀`): at most `2 X`. -/
+theorem altR0Set_defect_le [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ}
+    (hp : Params q γ₁ γ₂ β mb) (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ)
+    (a : Fin K → Fin L → Fin n → ZMod q) (h₀ : Fin L) :
+    (Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)).defect ≤
+      2 * X mulmat γ₁ γ₂ β mb v h₀ a := by
+  set μ := mu q γ₂ β mb K n
+  have hμ : 0 < μ := mu_pos hp
+  have hN : (0 : ℚ) < Fintype.card (Fin L → V γ₁ n) := by exact_mod_cast Fintype.card_pos
+  refine (Bathwater.AltR0Joint.altR0Set_defect_le {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)
+    μ).trans (mul_le_mul_of_nonneg_left ?_ (by norm_num))
+  have hd := dev_le mulmat hp v a h₀
+  unfold Bathwater.AltR0Set.dev at hd
+  set S := ∑ y, |Bathwater.AltR0Set.rho {h₀} (r0 mulmat γ₁ γ₂ β v a) y - μ|
+  calc S / Fintype.card (Fin L → V γ₁ n)
+      = S / (Fintype.card (Fin L → V γ₁ n) * μ) * μ := by field_simp
+    _ ≤ X mulmat γ₁ γ₂ β mb v h₀ a / μ * μ := mul_le_mul_of_nonneg_right hd hμ.le
+    _ = X mulmat γ₁ γ₂ β mb v h₀ a := by field_simp
+
+/-- alt-r0 accepts with vanilla's probability. -/
+lemma altR0Set_pAcc_eq [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ : ℕ)
+    (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ) (a : Fin K → Fin L → Fin n → ZMod q)
+    (h₀ : Fin L) :
+    (Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)).pAcc =
+      Bathwater.AltR0Set.pacc (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c) :=
+  Bathwater.AltR0Joint.altR0Set_pAcc _ _ _
+
+/-- **Per-attempt closeness of alt-r0, general form.** For a matrix that is not `Bad2` at level
+`ε < p_z`, in every attempt window `k`, alt-r0's joint law of (attempt number, output) over the
+first `k` attempts is within `k · 2ε/(p_z − ε)` of vanilla's in `ℓ¹`, and it is still running after
+`k` attempts with probability at most `(1 − μ(p_z − ε))^k + 2ε/(p_z − ε)`. -/
+theorem altR0_joint_main [Nonempty C] [Nonempty (V γ₁ n)]
+    (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) {γ₂ mb : ℕ}
+    (hp : Params q γ₁ γ₂ β mb) (u : C → Fin (L * n) → ℤ) (v : C → Fin (K * n) → ℤ)
+    (hu : ∀ c, Bounded β (u c)) (h₀ : Fin L) {ε : ℚ} (hε : 0 < ε)
+    (a : Fin K → Fin L → Fin n → ZMod q) (ha : ¬ Bad2 mulmat γ₁ γ₂ β mb u v h₀ ε a)
+    (hpz : ε < pz γ₁ β L n) (k : ℕ) :
+    ∑ x, |(Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)).loop.outUpTo k x -
+        (Bathwater.vanilla (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c)).loop.outUpTo
+          k x| ≤ k * (2 * ε / (pz γ₁ β L n - ε)) ∧
+      ∑ y, (Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)).loop.state k y ≤
+        (1 - mu q γ₂ β mb K n * (pz γ₁ β L n - ε)) ^ k + 2 * ε / (pz γ₁ β L n - ε) ∧
+      mu q γ₂ β mb K n * (pz γ₁ β L n - ε) ≤
+        (Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)).pAcc := by
+  set μ := mu q γ₂ β mb K n
+  set P := Bathwater.altR0Set {h₀} (r0 mulmat γ₁ γ₂ β v a) (zok γ₁ β u)
+  have hμ : 0 < μ := mu_pos hp
+  have hη : 0 < μ * ε := mul_pos hμ hε
+  simp only [Bad2, not_or, not_le] at ha
+  have hXa := X_lt_of_X2 mulmat v h₀ a hη ha.1
+  have hZa := Xz_lt_of_Xz2 mulmat u v h₀ a hη ha.2
+  have hdef : P.defect ≤ 2 * (μ * ε) :=
+    (altR0Set_defect_le mulmat hp u v a h₀).trans (by linarith)
+  have hpacc : μ * (pz γ₁ β L n - ε) ≤ P.pAcc := by
+    rw [altR0Set_pAcc_eq]
+    have := pacc_ge mulmat hp u v hu a h₀
+    linarith
+  have hgap : 0 < μ * (pz γ₁ β L n - ε) := mul_pos hμ (by linarith)
+  have hp0 : 0 < P.pAcc := lt_of_lt_of_le hgap hpacc
+  have hratio : P.defect / P.pAcc ≤ 2 * ε / (pz γ₁ β L n - ε) := by
+    calc P.defect / P.pAcc ≤ 2 * (μ * ε) / (μ * (pz γ₁ β L n - ε)) :=
+          div_le_div₀ (by positivity) hdef hgap hpacc
+      _ = 2 * ε / (pz γ₁ β L n - ε) := by
+          rw [mul_left_comm, mul_div_mul_left _ _ hμ.ne']
+  have hPQ : ∀ y c, P y c = none ↔
+      Bathwater.vanilla (fun y c => r0 mulmat γ₁ γ₂ β v a y c && zok γ₁ β u y c) y c = none := by
+    intro y c
+    rw [Bathwater.AltR0Joint.altR0Set_accept]
+    unfold Bathwater.vanilla
+    split_ifs with h <;> simp [h]
+  refine ⟨?_, ?_, hpacc⟩
+  · refine (P.outUpTo_close _ (Bathwater.vanilla_invariant _) hPQ hp0 k).trans ?_
+    exact mul_le_mul_of_nonneg_left hratio (Nat.cast_nonneg _)
+  · refine (P.survive_close hp0 k).trans (add_le_add ?_ hratio)
+    exact pow_le_pow_left₀ (by linarith [P.pAcc_le_one]) (by linarith) k
+
+end AltR0JointInst
+
+/-! ## Headlines -/
+
+/-- Shared tail of the three headlines. -/
+lemma joint_headline_aux {μ pz pAcc ε B : ℚ} (k : ℕ) (hμ : 0 < μ) (hgap : 1 / 2 ≤ pz - ε)
+    (hB : 2 * ε / (1 / 2) ≤ B) (hε : 0 ≤ ε) (hp1 : pAcc ≤ 1) (hpacc : μ * (pz - ε) ≤ pAcc)
+    {d s : ℚ} (hd : d ≤ k * (2 * ε / (pz - ε)))
+    (hs : s ≤ (1 - μ * (pz - ε)) ^ k + 2 * ε / (pz - ε)) :
+    d ≤ k * B ∧ s ≤ (1 - μ / 2) ^ k + B := by
+  have hb : 2 * ε / (pz - ε) ≤ B :=
+    (div_le_div_of_nonneg_left (by positivity) (by norm_num) hgap).trans hB
+  refine ⟨hd.trans (mul_le_mul_of_nonneg_left hb (Nat.cast_nonneg _)), hs.trans (add_le_add ?_ hb)⟩
+  refine pow_le_pow_left₀ (by linarith) ?_ k
+  nlinarith
+
+/-- **ML-DSA-44, alt-r0, per attempt.** `ε = 2^-127`, any head `h₀`. Bad fraction `≤ 1 / 2 ^ 127` (the
+same bad set as `altR0_mldsa44`); for every other `A` and every `k`, over the first `k` attempts
+the joint law of (attempt number, output) of alt-r0 is within `k · 2^-125` of vanilla's in `ℓ¹`,
+and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2)^k + 2^-125`. -/
+theorem altR0_joint_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
+    (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
+    (h₀ : Fin 4) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
+        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 127 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
+          (1 / 2 ^ 127) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+              (zok (2 ^ 17) 78 u)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+              zok (2 ^ 17) 78 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 125) ∧
+        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+              (zok (2 ^ 17) 78 u)).loop.state k y ≤
+          (1 - mu 8380417 95232 78 44 4 256 / 2) ^ k + 1 / 2 ^ 125 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 127) (by norm_num)
+    (avg_X2_44 v hv h₀) (avg_Xz2_44 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_44
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 1 / 2 ^ 127 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 127 ≤ 27 / 50 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := altR0_joint_main negacyclic params_mldsa44 u v hu h₀
+    (by norm_num) a ha (by linarith) k
+  exact joint_headline_aux k (mu_pos params_mldsa44) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+/-- **ML-DSA-65, alt-r0, per attempt.** `ε = 2^-140`, any head `h₀`. Bad fraction `≤ 1 / 2 ^ 139` (the
+same bad set as `altR0_mldsa65`); for every other `A` and every `k`, over the first `k` attempts
+the joint law of (attempt number, output) of alt-r0 is within `k · 2^-138` of vanilla's in `ℓ¹`,
+and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2)^k + 2^-138`. -/
+theorem altR0_joint_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
+    (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
+    (h₀ : Fin 5) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
+        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 139 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
+          (1 / 2 ^ 140) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+              (zok (2 ^ 19) 196 u)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+              zok (2 ^ 19) 196 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 138) ∧
+        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+              (zok (2 ^ 19) 196 u)).loop.state k y ≤
+          (1 - mu 8380417 261888 196 16 6 256 / 2) ^ k + 1 / 2 ^ 138 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 140) (by norm_num)
+    (avg_X2_65 v hv h₀) (avg_Xz2_65 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_65
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 1 / 2 ^ 140 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 140 ≤ 3 / 5 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := altR0_joint_main negacyclic params_mldsa65 u v hu h₀
+    (by norm_num) a ha (by linarith) k
+  exact joint_headline_aux k (mu_pos params_mldsa65) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+/-- **ML-DSA-87, alt-r0, per attempt.** `ε = 2^-157`, any head `h₀`. Bad fraction `≤ 1 / 2 ^ 157` (the
+same bad set as `altR0_mldsa87`); for every other `A` and every `k`, over the first `k` attempts
+the joint law of (attempt number, output) of alt-r0 is within `k · 2^-155` of vanilla's in `ℓ¹`,
+and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2)^k + 2^-155`. -/
+theorem altR0_joint_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
+    (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
+    (h₀ : Fin 7) :
+    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
+        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 157 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
+          (1 / 2 ^ 157) a → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+              (zok (2 ^ 19) 120 u)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+              zok (2 ^ 19) 120 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 155) ∧
+        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+              (zok (2 ^ 19) 120 u)).loop.state k y ≤
+          (1 - mu 8380417 261888 120 16 8 256 / 2) ^ k + 1 / 2 ^ 155 := by
+  obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 157) (by norm_num)
+    (avg_X2_87 v hv h₀) (avg_Xz2_87 u v hv h₀)
+  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  have hpz := pz_ge_87
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 1 / 2 ^ 157 := by
+    have : (1 / 2 : ℚ) + 1 / 2 ^ 157 ≤ 3 / 5 := by norm_num
+    linarith
+  obtain ⟨d1, d2, d3⟩ := altR0_joint_main negacyclic params_mldsa87 u v hu h₀
+    (by norm_num) a ha (by linarith) k
+  exact joint_headline_aux k (mu_pos params_mldsa87) hgap (by norm_num) (by norm_num)
+    (Bathwater.ReusePolicy.pAcc_le_one _) d3 d1 d2
+
+end AltR0Final
+
+end
+
+end AltR0JointPart
