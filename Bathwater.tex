@@ -1,0 +1,301 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{amsmath,amssymb,amsthm,mathtools}
+\usepackage{hyperref}
+\usepackage{booktabs}
+
+\newtheorem{theorem}{Theorem}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\theoremstyle{remark}
+\newtheorem*{remark}{Remark}
+
+\newcommand{\Z}{\mathbb{Z}}
+\newcommand{\lowbits}{\operatorname{LowBits}}
+\newcommand{\lean}[1]{\texttt{#1}}
+\renewcommand{\Pr}{\mathop{\mathrm{Pr}}}
+
+\title{Reusing the nonce in Dilithium's signing loop\\
+\large A walk through the Lean proof \lean{Bathwater.lean}}
+\author{}\date{}
+
+\begin{document}
+\maketitle
+
+\begin{center}
+\fbox{\parbox{0.9\textwidth}{\small\textbf{Disclaimer.} This document, the Lean proof and the
+numerical experiments were produced mostly by Claude Opus~5.5 (Anthropic), under human
+direction. The Lean statements are machine-checked; everything else, including the prose and the
+experiments, has not been independently verified.}}
+\end{center}
+
+\begin{abstract}
+Sprenkels and Westerbaan (``Don't throw your nonces out with the bathwater'', ePrint 2020/1158)
+and Sprenkels' thesis (chapter~8) propose to keep part of the nonce $y=(y_1,\dots,y_\ell)$ of
+Dilithium/ML-DSA across rejected signing attempts. We check these proposals in Lean~4 + Mathlib
+(no \lean{sorry}, standard axioms only), in the model where every attempt gets a fresh uniform
+challenge (the \emph{Trans} hybrid of the security proof). The thesis's \emph{alt-z} (z-check
+first, polynomial by polynomial; on a failure at $y_i$ resample $y_1,\dots,y_i$) is
+\emph{exact}: in every attempt, the joint law of the attempt number and the output equals that of
+vanilla signing, so the vanilla zero-knowledge simulator applies unchanged. The ePrint's main
+proposal \emph{alt-r0} (r$_0$-check first; on failure resample only $y_1$) is \emph{not}
+perfectly zero-knowledge: on a Dilithium-shaped toy instance, two secret keys with the same public
+key output the same signature with probabilities $1/6$ and $1/3$. Two other orderings fail the
+same way. Whether alt-r0 is \emph{statistically} zero-knowledge for the real parameters is left
+open.
+\end{abstract}
+
+\tableofcontents
+
+\section{The headline}\label{sec:headline}
+
+\begin{center}\small
+\begin{tabular}{@{}lll@{}}
+\toprule
+Policy & Source & Verdict\\
+\midrule
+vanilla, any check order & FIPS 204 & exact (by definition)\\
+alt-z: z first, prefix resample & thesis Alg.~8.2 & \textbf{exact} (\lean{altZ\_exact})\\
+alt-r0: r$_0$ first, keep $y_2..y_\ell$ & ePrint Alg.~2, thesis 8.3 &
+  \textbf{leaks} on toy (\lean{toy\_altR0\_leaks})\\
+r$_0$ first, prefix resample on z & ePrint Alg.~3 order &
+  leaks on toy (\lean{toy\_r0FirstPrefixZ\_leaks})\\
+z first, then keep $y_2..y_\ell$ on r$_0$ & (variant) &
+  leaks on toy (\lean{toy\_zFirstThenY1\_leaks})\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{itemize}
+\item \textbf{Exact} means: for every attempt number $k$ and every $(y,c)$, the probability that
+  attempt $k$ is the accepting one and outputs $(y,c)$ is the same as for vanilla signing. The
+  output law, the law of the number of attempts, and their joint law are all vanilla's.
+\item \textbf{Leaks} means: there are two secret keys with the \emph{same} public key, and a
+  signature $(c,z)$, whose probability of being output differs between the keys. No simulator
+  that sees only the public key can then be perfect.
+\item The toy has $n=1$. It shows that the property the ePrint claims (perfect zero-knowledge) is
+  false in general. It does \emph{not} show a practical leak for ML-DSA, where the bias is
+  expected to be astronomically small (Section~\ref{sec:altr0}).
+\item The ePrint's \S4 argues that alt-r0 is perfectly zero-knowledge. Its simulator keeps
+  $z_2,\dots,z_\ell$ and resamples $z_1$ and $c$. That is not what the scheme does: the scheme
+  keeps $y_2,\dots,y_\ell$, so the tail of $z = y + c s_1$ changes with every new $c$. The thesis
+  (\S8.A) withdraws the claim and gives a heuristic bound instead.
+\end{itemize}
+
+\section{Setting}\label{sec:setting}
+
+A signing attempt draws $y=(y_1,\dots,y_\ell)$ uniformly from $(-\gamma_1,\gamma_1]^{n\ell}$,
+computes the challenge $c$ from $w_1 = \mathrm{HighBits}(Ay)$, sets $z = y + c s_1$ and runs two
+checks:
+\begin{align*}
+\text{z-check:}\quad & \|z_i\|_\infty < \gamma_1-\beta \text{ for every } i
+  \qquad\text{(polynomial $i$ depends only on $y_i$ and $c$)},\\
+\text{r$_0$-check:}\quad & \|\lowbits(Ay - c s_2)\|_\infty < \gamma_2 - \beta
+  \qquad\text{(depends on all of $y$)}.
+\end{align*}
+Vanilla resamples all of $y$ after any failure. The proposals keep some polynomials of $y$.
+
+\paragraph{The model (Trans hybrid).} The security proof of Fiat--Shamir with aborts
+(\cite{BBDD23}, adapted in thesis \S8.4) first replaces the random-oracle call $c = H(M\|w_1)$ by
+a fresh uniform $c$ in every attempt, and programs $H$ only for the accepted attempt. The
+distance from the real scheme is bounded by the min-entropy of $w_1$ (the thesis does this for
+alt-z). After that hop, zero-knowledge is a purely combinatorial question about the loop: what is
+the law of the accepted $(y,c)$? That question is what the Lean file answers. Throughout:
+
+\begin{description}
+\item[A1] Each attempt's challenge $c$ is uniform on a finite set $C$, independent of everything
+  else. The adversary sees only the accepted $(y,c)$; equivalently, the signature
+  $(c, z=y+cs_1)$, from which $y$ is determined.
+\item[A2] The z-check of polynomial $i$ depends only on $(y_i,c)$; the r$_0$-check may depend on
+  all of $(y,c)$. Both are arbitrary predicates in the general theorems.
+\item[A3] Resampled polynomials are fresh and uniform.
+\end{description}
+Not modelled: the Sign$\to$Trans hop itself (random-oracle programming and the min-entropy of
+$w_1$ with a reused tail), the quantum random oracle, and timing.
+
+\section{The loop as a chain}\label{sec:loop}
+
+\begin{definition}[\lean{Loop}]
+A rejection loop is given by an initial law $\pi$ on states, a sub-stochastic matrix
+$B(s,s')$ (reject in state $s$, continue in $s'$) and $A(s,x)$ (accept in state $s$ with output
+$x$). The state at attempt $k$ has sub-law $\mu_k = \pi B^k$ (\lean{state}), attempt $k$ accepts
+with output $x$ with probability $\mathrm{out}_k(x) = \sum_s \mu_k(s) A(s,x)$ (\lean{outAt}), and
+$\mathrm{out}_{<K}(x) = \sum_{k<K} \mathrm{out}_k(x)$ (\lean{outUpTo}).
+\end{definition}
+
+\begin{theorem}[\lean{Loop.tendsto\_outUpTo}]
+Suppose $B, A \ge 0$, $A \le 1$, every row of $B$ sums to at most $1$, and for some $m \ge 1$ and
+$\varepsilon > 0$, $m$ consecutive rejections have probability at most $1-\varepsilon$ from every
+state. If $\nu$ solves $\nu = \pi + \nu B$, then
+$\mathrm{out}_{<K}(x) \to \sum_s \nu(s) A(s,x)$ as $K\to\infty$.
+\end{theorem}
+
+$\nu(s)$ is the expected number of visits to $s$. The proof writes
+$\nu = \sum_{k<K}\mu_k + \nu B^K$ and shows that the mass of $\nu B^K$ shrinks by $1-\varepsilon$
+every $m$ steps. We need $m>1$ because some states cannot accept in one attempt: a kept
+polynomial with a coefficient $\gamma_1$ fails the z-check for every $c$.
+
+\begin{definition}[\lean{ReusePolicy}, \lean{ReusePolicy.loop}]
+The nonce is $y : \iota \to V$ (here $\iota = \{1,\dots,\ell\}$, $V$ the values of one
+polynomial). A reuse policy maps $(y,c)$ to either \emph{accept}, or \emph{reject keeping}
+a set $K\subseteq\iota$. The state of its loop is the full nonce at the start of an attempt; the
+first one is uniform. After a reject keeping $K$ the next nonce agrees with $y$ on $K$ and is
+uniform elsewhere:
+\[
+  B(y,y') = \frac1{|C|}\sum_{c} [\text{$(y,c)$ rejects keeping $K$}]\,
+    \frac{[\,y'|_K = y|_K\,]}{|V|^{|\iota\setminus K|}},\qquad
+  A(y,(y,c)) = \frac{[\text{$(y,c)$ accepts}]}{|C|}.
+\]
+\end{definition}
+Drawing the fresh polynomials at the end of the previous attempt rather than at the start of the
+next one does not change anything; it keeps the state space simple.
+
+\section{When reuse is exact}\label{sec:exact}
+
+\begin{definition}[\lean{ReusePolicy.Invariant}]
+A policy is \emph{invariant} if every reject event depends only on the polynomials it resamples:
+if $(y,c)$ rejects keeping $K$, and $y'$ agrees with $y$ outside $K$, then $(y',c)$ also rejects
+keeping $K$.
+\end{definition}
+
+\begin{theorem}[\lean{exact\_of\_invariant}, \lean{outAt\_eq\_of\_invariant}]
+Let $p$ be the probability that one attempt with uniform $y$ and $c$ accepts. For an invariant
+policy, $\mu_k$ is $(1-p)^k$ times the uniform law, for every $k$. Hence two invariant policies
+that accept on the same $(y,c)$ have the same $\mathrm{out}_k$ for every $k$.
+\end{theorem}
+
+\begin{proof}[Idea]
+It suffices that every column of $B$ sums to $1-p$: then uniform stays uniform, scaled by the
+rejection probability. Fix $c$ and $K$, and let $f(y)$ be the indicator that $(y,c)$ rejects
+keeping $K$. By invariance $f$ ignores the coordinates in $K$. So among the $y$ that agree with a
+given $y'$ on $K$, the fraction with $f(y)=1$ equals the overall fraction (\lean{sum\_agree},
+via $y \leftrightarrow (y|_K, y|_{\iota\setminus K})$). Hence
+$\sum_y f(y)\,[y|_K = y'|_K]/|V|^{|\iota\setminus K|} = \Pr_y[f(y)=1]$. Summing over $K$ and $c$
+gives $1-p$.
+\end{proof}
+
+Vanilla (always keep $\emptyset$) is trivially invariant (\lean{vanilla\_invariant}).
+
+\begin{theorem}[\lean{altZ\_exact}]
+For any z-checks satisfying A2 and any r$_0$-check, alt-z has the same $\mathrm{out}_k$ as
+vanilla for every $k$.
+\end{theorem}
+Alt-z keeps $\{j : j > i\}$ when $i$ is the first polynomial that fails its z-check, and keeps
+nothing when the z-check passes and the r$_0$-check fails. The event ``$i$ is the first failure''
+depends only on $y_1,\dots,y_i$ and $c$ (\lean{firstFail\_congr}), and these are exactly the
+resampled polynomials. So alt-z is invariant (\lean{altZ\_invariant}); it accepts exactly when
+vanilla does (\lean{altZ\_accept}).
+
+\begin{remark}
+This explains which orderings work. Before a reject keeps $y_j$, \emph{no} check that has been
+looked at may depend on $y_j$. The r$_0$-check depends on all of $y$, so any policy that keeps
+something after the r$_0$-check has been evaluated breaks invariance. This covers: alt-r0; the
+r$_0$-first order of ePrint Algorithm~3 (whose kept tail has passed an r$_0$-check); and
+``z first, keep the tail on an r$_0$ failure''. Keeping $y_1$ after a failure at $y_2$ breaks it
+too (the ePrint and thesis both note this).
+\end{remark}
+
+\section{Alt-r0}\label{sec:altr0}
+
+In alt-r0 the tail $t = (y_2,\dots,y_\ell)$ stays fixed until the r$_0$-check passes. Write
+$\rho(t)$ for the probability over fresh $y_1$ and $c$ that the r$_0$-check passes with tail $t$.
+Solving $\nu = \pi + \nu B$ gives visit counts $\nu(y) \propto 1/\rho(t)$, so
+\[
+  \Pr[\text{output } (y,c)] \;\propto\; \frac{[\,(y,c)\text{ passes both checks}\,]}{\rho(t)},
+\]
+whereas vanilla outputs every passing $(y,c)$ with the same probability. Intuitively, a tail that
+rarely passes the r$_0$-check is stuck for many attempts and gets many draws of $(y_1, c)$.
+Since $t = z_{2..\ell} - c\,s_{1,2..\ell}$ and $\rho$ depends on $A$ and $s_2$, the weight depends
+on the secret. (This closed form is not yet in the Lean file; the toy instance below checks the
+consequence directly.)
+
+Alt-r0 is therefore exactly as close to vanilla as $\rho(t)$ is to constant. If
+$|\rho(t)/\bar\rho - 1| \le \delta$ for all relevant $t$, the statistical distance is
+$O(\delta)$. For ML-DSA one expects $\rho(t)$ to be extremely concentrated: $y_1$ alone has
+$2^{18\cdot256}$ values, and the thesis's heuristic gives distances around $2^{-2289}$. That
+heuristic treats the effect of $A$ as a binomial distribution. A rigorous bound averaged over
+$A$, in the spirit of the second-moment argument of \lean{RejOrder.lean}, is open.
+
+\section{The toy counterexamples}\label{sec:toy}
+
+The instance (section \lean{Toy}): $q=17$, $n=1$ so $R_q = \Z/17$, $\gamma_2 = 2$
+($2\gamma_2 \mid q-1$), $\gamma_1 = 3$, $\eta=\tau=1$ (so $c=\pm1$, $\beta = 1$), $\ell=2$,
+$k=1$, $A = (4\ \ 7)$. $\lowbits$ is FIPS~204's \textsf{Decompose}, including its corner case.
+The keys
+\[
+  s_1 = (-1,-1),\ s_2 = -1 \qquad\text{and}\qquad s_1 = (1,0),\ s_2 = 1
+\]
+have the same public key $t = As_1 + s_2 = 5$ (\lean{same\_pk}). The signature
+$(c,z) = (1,(0,0))$ comes from $y=(1,1)$ under the first key and $y=(-1,0)$ under the second
+(\lean{y1\_sig}, \lean{y2\_sig}). Its probability:
+
+\begin{center}
+\begin{tabular}{@{}lccl@{}}
+\toprule
+Policy & key 1 & key 2 & Lean\\
+\midrule
+vanilla & $1/4$ & $1/4$ & \lean{toy\_vanilla\_same}\\
+alt-r0 & $1/6$ & $1/3$ & \lean{toy\_altR0\_leaks}\\
+r$_0$ first, prefix z & $3/11$ & $5/22$ & \lean{toy\_r0FirstPrefixZ\_leaks}\\
+z first, keep tail on r$_0$ & $4/19$ & $1/4$ & \lean{toy\_zFirstThenY1\_leaks}\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Each entry is a limit of $\mathrm{out}_{<K}$ as $K\to\infty$, proved with
+Theorem~\lean{Loop.tendsto\_outUpTo}. The visit vector $\nu$ (36 rationals) was found by exact
+linear algebra outside Lean. The kernel checks, by \lean{decide +kernel}, that $\nu = \pi + \nu B$,
+that rows of $B$ sum to at most $1$, that three consecutive rejections have probability at most
+$1 - 1/200$, and the value $\sum_s \nu(s)A(s,x)$. The policies are the same Lean definitions
+(\lean{altR0}, \lean{r0FirstPrefixZ}, \lean{zFirstThenY1}, \lean{vanilla}) as in the general
+theorems, instantiated with the toy checks.
+
+On the full ePrint Algorithm~3 (alt-r0 together with prefix resampling after the r$_0$-check)
+the toy has tails that can never be accepted: the tail is kept on an r$_0$ failure and on a z
+failure at $y_1$, and for some tails one of the two always fails. This does not happen for real
+parameters, but it is why Algorithm~3 has no toy theorem; its two ingredients each leak.
+
+\section{What is not covered}\label{sec:notcovered}
+
+\begin{itemize}
+\item \textbf{Sign $\to$ Trans.} The hop from the real scheme to fresh challenges needs the
+  commitment $w_1$ to have high min-entropy in every attempt, also with a reused tail. The thesis
+  (\S8.4.4) argues this when the first column of $A$ has an invertible entry. Not formalised.
+\item \textbf{Statistical zero-knowledge of alt-r0} for ML-DSA parameters (Section~\ref{sec:altr0}).
+\item \textbf{Timing.} Exactness is about the accepted signature and the number of attempts. With
+  alt-z the work in an attempt depends on how many polynomials are resampled, which reveals the
+  index of the first failing z polynomial. That is the same kind of information as in
+  \lean{RejOrder.lean} (which check failed, and where); it is not analysed here.
+\item The toy has $n = 1$; there is no NTT structure.
+\end{itemize}
+
+\section{Map of the Lean file}\label{sec:map}
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Section & Contents\\
+\midrule
+\lean{Loop} & loop semantics, \lean{tendsto\_outUpTo}\\
+\lean{Reuse} & \lean{ReusePolicy}, \lean{keepProb}, \lean{sum\_agree}, \lean{exact\_of\_invariant},
+  \lean{vanilla}\\
+\lean{LoopFacts} & nonnegativity and bounds of $B$ and $A$\\
+\lean{Policies} & \lean{firstFail}, \lean{altZ}, \lean{altR0}, \lean{r0FirstPrefixZ},
+  \lean{zFirstThenY1}, \lean{altZ\_exact}\\
+\lean{Toy} & the instance, visit vectors, \lean{toy\_*} theorems\\
+\bottomrule
+\end{tabular}
+\end{center}
+Build: about 70\,s, almost all of it in the kernel checks of the toy.
+
+\begin{thebibliography}{9}
+\bibitem{SW20} A.~Sprenkels and B.~Westerbaan. Don't throw your nonces out with the bathwater:
+  speeding up Dilithium by reusing the tail of $y$. Cryptology ePrint Archive 2020/1158.
+\bibitem{Spr24} A.~Sprenkels. PhD thesis, Radboud University, 2024, chapter~8.
+\bibitem{BBDD23} M.~Barbosa et al. Fixing and mechanizing the security proof of
+  Fiat--Shamir with aborts and Dilithium. CRYPTO 2023.
+\end{thebibliography}
+
+\end{document}
