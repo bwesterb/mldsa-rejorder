@@ -44,9 +44,9 @@ proposal \emph{alt-r0} (r$_0$-check first; on failure resample only $y_1$) is \e
 perfectly zero-knowledge: on a Dilithium-shaped toy instance, two secret keys with the same public
 key output the same signature with probabilities $1/6$ and $1/3$. Two other orderings fail the
 same way. For the real parameters alt-r0 is nevertheless \emph{statistically} close to vanilla:
-for all but a $2^{-97}$ fraction of matrices $A$, the alt-r0 signature distribution is within
-$2^{-96}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-119}$ and $2^{-124}$ for ML-DSA-65/87, with
-bad fractions $2^{-121}$ and $2^{-127}$), per signature. The proof bounds the second moment, over $A$,
+for all but a $2^{-127}$ fraction of matrices $A$, the alt-r0 signature distribution is within
+$2^{-125}$ of vanilla's in $\ell_1$ for ML-DSA-44 ($2^{-138}$ and $2^{-155}$ for ML-DSA-65/87, with
+bad fractions $2^{-139}$ and $2^{-157}$), per signature. The proof bounds the second moment, over $A$,
 of the r$_0$ pass probability with the tail of $y$ fixed, by a Fourier expansion of the pass set
 and the uncertainty-principle counting of \lean{RejOrder.lean}.
 \end{abstract}
@@ -264,7 +264,9 @@ for ML-DSA-44, -65, -87, with $A$ uniform in $R_q^{k\times\ell}$ and $t$ uniform
 \end{theorem}
 
 The second moment behind it is $\mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
-\le \mu^2 2^{-294}, \mu^2 2^{-364}, \mu^2 2^{-380}$ (\lean{var\_mldsa44\_sharp} etc.). Combining
+\le \mu^2 2^{-294}, \mu^2 2^{-364}, \mu^2 2^{-380}$ (\lean{var\_mldsa44\_sharp} etc.), and
+with the $1/q$ slot bound of Section~\ref{sec:slotq} it is
+$\le \mu^2 2^{-382}, \mu^2 2^{-420}, \mu^2 2^{-472}$ (\lean{var\_mldsa44\_q} etc.). Combining
 with Section~\ref{sec:altr0} (the full box controls $D$, the z-passing box gives
 $P \ge \mu p_z - \text{error}$ with $p_z \approx 0.54, 0.62, 0.66$ the z pass probability) and
 Markov's inequality over $A$ applied to that \emph{second} moment (a matrix is bad if the mean
@@ -278,15 +280,17 @@ For any finite challenge set $C$ and $c s_1$, $c s_2$ bounded by $\beta$, and an
 \toprule
  & bad fraction of $A$ & $\sum_x|U(x)-V(x)|$ & $\Pr[\text{never terminates}]$\\
 \midrule
-ML-DSA-44 & $\le 2^{-97}$ & $\le 2^{-96}$ & $\le 2^{-97}$\\
-ML-DSA-65 & $\le 2^{-121}$ & $\le 2^{-119}$ & $\le 2^{-120}$\\
-ML-DSA-87 & $\le 2^{-127}$ & $\le 2^{-124}$ & $\le 2^{-125}$\\
+ML-DSA-44 & $\le 2^{-127}$ & $\le 2^{-125}$ & $\le 2^{-126}$\\
+ML-DSA-65 & $\le 2^{-139}$ & $\le 2^{-138}$ & $\le 2^{-139}$\\
+ML-DSA-87 & $\le 2^{-157}$ & $\le 2^{-155}$ & $\le 2^{-156}$\\
 \bottomrule
 \end{tabular}
 \end{center}
 The last two columns hold for every $A$ outside the bad set. The bad fraction scales as
-$2^{-2j}/\varepsilon^2$ and the distance as $\varepsilon$, so the trade-off can be moved; e.g.\
-keeping the distance at $2^{-71}$ for ML-DSA-44 makes the bad fraction $2^{-147}$. (Applying
+$2\cdot 2^{-k}/\varepsilon^2$ ($k = 382, 420, 472$) and the distance as $4\varepsilon$, so the
+trade-off can be moved; e.g.\ keeping the distance at $2^{-95}$ for ML-DSA-44 makes the bad
+fraction $2^{-187}$. (Before the $1/q$ slot bound, $k = 294, 364, 380$ gave
+$2^{-97}/2^{-96}$, $2^{-121}/2^{-119}$, $2^{-127}/2^{-124}$.) (Applying
 Markov to the first moment instead, \lean{altR0\_mldsa44\_eps}, gives only $2^{-73}$ and
 $2^{-71}$.)
 \end{theorem}
@@ -360,13 +364,40 @@ $b^2$-weighted counts up to $d_1 = 25, 26, 27$ degenerate slots and the exceptio
 and is checked with $k = 294, 364, 380$; hence $2^{-147}, 2^{-182}, 2^{-190}$. Here the weighted
 counts are bounded by rows (\lean{wcount\_le\_rows}) rather than by truncating in $|T|$.
 
+\subsection{A slot condition costs $1/q$}\label{sec:slotq}
+
+The window argument bounds the probability that a box polynomial has prescribed NTT values at
+$r$ given slots by $w^{-r}$, $w$ the box width ($2^{18}$ or $2^{20}$). The truth is about
+$q^{-r}$ ($q \approx 2^{23}$). Section \lean{PackingPart} proves
+\[
+  \#\{f \in \text{box of width } w : \hat f|_S = \tau\} \cdot q^{|S|} \le (w + 2nB)^n
+  \qquad\text{whenever } (B+1)^n > q^{|S|}
+\]
+(\lean{Packing.card\_coset\_le}), by packing:
+\begin{enumerate}
+\item Pigeonhole on $[0,B]^n$ gives a nonzero $v$ with $|v_s| \le B$ and $\hat v|_S = 0$.
+\item The multiples of $v$ in $R = \Z[X]/(X^n+1)$ keep $\hat{\ }|_S = 0$. Since $X^{256}+1$ is the
+  $512$-th cyclotomic polynomial, it is irreducible over $\mathbb Q$, so the negacyclic matrix of
+  $v$ is invertible over $\mathbb Q$ (section \lean{NcInvPart}, \lean{ncMat\_det\_ne\_zero}).
+  Every integer $x$ is then $x = v\cdot\lfloor v^{-1}x\rfloor + \mathrm{red}(x)$ with
+  $|\mathrm{red}(x)_s| \le nB$ and the same values on $S$.
+\item Reducing the $q^{|S|}$ vectors of $[0,q)^{|S|}\times 0$ (distinct on $S$ by the window
+  argument) gives $q^{|S|}$ short representatives; translating the solutions by them packs
+  $q^{|S|}$ disjoint copies into a box of width $w + 2nB$.
+\end{enumerate}
+With $B = 5$ (valid up to $28$ slots, $6^{256} > q^{28}$) the constant $((w+2nB)/w)^n$ is about
+$2^{3.6}$ (ML-DSA-44) and $2^{0.9}$ (65/87). Section \lean{AltR0QPart} redoes the slot
+probabilities with $p = 1/q + (2\gamma_1)^{-(\ell-1)}$: \lean{prob\_deg\_ge\_q} (constant once) and
+\lean{prob\_deg\_exc\_q} (constant squared: two head conditions). \lean{var\_rel\_gen} takes
+these probabilities as hypotheses; the kernel checks (\lean{numQ\_44\_full} etc.) use
+$d_1 = 27$, $d_2 = 19$ and give $k = 382, 420, 472$.
+
 \subsection{Where the bound is loose}
 
 \begin{itemize}
-\item Triples with an exceptional slot still use the crude bound; for ML-DSA-44 they limit the
-  variance at about $2^{-298}$, while the main part alone would give about $2^{-395}$.
-\item The probability that the head difference vanishes at a slot is bounded by $1/(2\gamma_1)
-  \approx 2^{-18}$; the truth is about $1/q \approx 2^{-23}$.
+\item Triples with an exceptional slot still use the crude bound, and they dominate: with the
+  $1/q$ bound the main part would give about $2^{-517}$ for ML-DSA-44, the exceptional part
+  $2^{-386}$.
 \item Going from the second moment to $\mathop{\mathbb E}|\rho - \mu|$ halves the exponent.
 \end{itemize}
 
@@ -481,9 +512,13 @@ Section & Contents\\
  & alt-r0 output law and distance (\lean{AltR0Set}); toy counterexamples (\lean{Toy})\\
 \lean{FourierPart} & covariance of product-set indicators (\lean{cov\_le})\\
 \lean{AltR0Part} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_rel}\\
+\lean{PackingPart} & a slot condition costs $1/q$ (\lean{card\_coset\_le})\\
+\lean{NcInvPart} & $X^{256}+1$ irreducible, so \lean{ncMat\_det\_ne\_zero}\\
 \lean{AltR0ExcPart} & probability of exceptional slots (\lean{prob\_deg\_exc})\\
+\lean{AltR0QPart} & slot probabilities with $1/q$ (\lean{prob\_deg\_ge\_q}, \dots)\\
 \lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le}, \lean{wcount\_le\_rows},
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
+\lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
 \lean{AltR0FinalPart} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
 \lean{MinEntropyPart} & guessing the commitment with a fresh head, \lean{minEntropy\_mldsa*}\\
 \bottomrule
@@ -492,7 +527,7 @@ Section & Contents\\
 The kernel checks bound the weighted count by rows: the sum over coordinate sets factors as a
 $k$-th power of a row sum (\lean{wcount\_le\_rows}), so each check multiplies numbers of at most
 about $50{,}000$ bits. \lean{build.sh} builds \lean{RejOrder.lean} and then \lean{Bathwater.lean}
-(about $100$\,s for the latter).
+(about $165$\,s and $12$\,GB for the latter).
 
 \begin{thebibliography}{9}
 \bibitem{SW20} A.~Sprenkels and B.~Westerbaan. Don't throw your nonces out with the bathwater:

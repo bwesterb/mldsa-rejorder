@@ -10,11 +10,17 @@ This file collects, in order:
   law of alt-r0 and its distance to vanilla, and the toy counterexamples.
 * `FourierPart`: a Fourier bound on the covariance of indicators of product sets.
 * `AltR0Part`: the second moment over `A` of the r₀ pass probability with the tail fixed.
+* `PackingPart`, `NcInvPart`: a slot condition costs `1/q` (packing argument; invertibility in
+  `ℚ[X]/(X^256+1)`).
 * `AltR0ExcPart`: the probability of exceptional slots.
+* `AltR0QPart`: the degenerate-slot probabilities with `1/q` per head condition.
 * `AltR0SharpPart`: the sharper second moment by pairing orthogonal test vectors, and its
   kernel-checked ML-DSA instances.
+* `AltR0GenPart`: the sharper second moment with general slot probabilities (`var_rel_gen`) and
+  its `1/q` ML-DSA instances (`var_mldsa44_q` etc.), used by the headlines.
 * `AltR0FinalPart`: alt-r0 for ML-DSA-44/65/87 end to end.
 * `MinEntropyPart`: min-entropy of the commitment with a fresh head.
+* `RejOrderFourierPart`: the RejOrder leak bound redone with the product-Fourier bound.
 
 It imports `RejOrder.lean` for the module/NTT machinery and the gap counts.
 -/
@@ -2714,6 +2720,299 @@ end
 
 end AltR0Part
 
+section PackingPart
+
+/-!
+# Packing bound for NTT cosets in a box
+
+If `(B+1)^n > q^|S|`, a short nonzero vector `v` with vanishing NTT on `S` exists; reducing modulo
+the ideal it generates gives `q^|S|` short vectors with distinct NTT values on `S`, and their
+translates by the solutions in the box are disjoint. Hence
+`#{f ∈ box | f^ = τ on S} · q^|S| ≤ (w + 2nB)^n`.
+-/
+
+open Finset Matrix RejOrder AltR0
+
+noncomputable section
+
+namespace Packing
+
+/-- The negacyclic matrix over any ring. -/
+def ncMat {R : Type*} [Ring R] {n : ℕ} (a : Fin n → R) : Matrix (Fin n) (Fin n) R :=
+  fun s t => if t ≤ s then a (s - t) else -a (s - t)
+
+lemma ncMat_map {R S : Type*} [Ring R] [Ring S] {n : ℕ} (f : R →+* S) (a : Fin n → R) :
+    (ncMat a).map f = ncMat (f ∘ a) := by
+  ext s t
+  simp only [Matrix.map_apply, ncMat, Function.comp]
+  split_ifs <;> simp
+
+lemma cast_mulVec {R : Type*} [Ring R] {n : ℕ} (a t : Fin n → ℤ) (s : Fin n) :
+    (((ncMat a *ᵥ t) s : ℤ) : R) = (ncMat (fun i => (a i : R)) *ᵥ fun i => (t i : R)) s := by
+  have := RingHom.map_mulVec (Int.castRingHom R) (ncMat a) t s
+  rw [ncMat_map] at this
+  simpa [Function.comp_def] using this
+
+set_option linter.unusedSectionVars false
+
+variable {q n : ℕ} [NeZero q] [Fact q.Prime]
+
+/-- NTT value of an integer vector. -/
+abbrev N (ζ : Fin n → ZMod q) (x : Fin n → ℤ) (k : Fin n) : ZMod q :=
+  nttP ζ (fun s => (x s : ZMod q)) k
+
+lemma N_add (ζ : Fin n → ZMod q) (x y : Fin n → ℤ) (k : Fin n) :
+    N ζ (x + y) k = N ζ x k + N ζ y k := by
+  simp only [N, nttP, Pi.add_apply, Int.cast_add, mul_add, sum_add_distrib]
+
+lemma N_sub (ζ : Fin n → ZMod q) (x y : Fin n → ℤ) (k : Fin n) :
+    N ζ (x - y) k = N ζ x k - N ζ y k := by
+  simp only [N, nttP, Pi.sub_apply, Int.cast_sub, mul_sub, sum_sub_distrib]
+
+lemma N_ideal {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (v t : Fin n → ℤ) (k : Fin n) : N ζ (ncMat v *ᵥ t) k = N ζ v k * N ζ t k := by
+  have e : (fun s => (((ncMat v *ᵥ t) s : ℤ) : ZMod q))
+      = negacyclic (fun i => (v i : ZMod q)) *ᵥ fun i => (t i : ZMod q) := by
+    funext s; rw [cast_mulVec]; rfl
+  simp only [N]
+  rw [e]
+  exact h.mul _ _ _
+
+/-- Rows of `ncMat` applied to a vector with entries in `[0,1)` are bounded by `n·B`. -/
+lemma abs_mulVec_le {n : ℕ} (v : Fin n → ℤ) (B : ℕ) (hv : ∀ i, |v i| ≤ B) (u : Fin n → ℚ)
+    (hu0 : ∀ j, 0 ≤ u j) (hu1 : ∀ j, u j < 1) (i : Fin n) :
+    |(ncMat (fun i => (v i : ℚ)) *ᵥ u) i| ≤ n * B := by
+  simp only [Matrix.mulVec, dotProduct]
+  refine (abs_sum_le_sum_abs _ _).trans ?_
+  have : ∀ j ∈ (univ : Finset (Fin n)),
+      |ncMat (fun i => (v i : ℚ)) i j * u j| ≤ (B : ℚ) := by
+    intro j _
+    rw [abs_mul, abs_of_nonneg (hu0 j)]
+    have hm : |ncMat (fun i => (v i : ℚ)) i j| ≤ B := by
+      have hb : |(v (i - j) : ℚ)| ≤ B := by exact_mod_cast hv (i - j)
+      simp only [ncMat]; split_ifs <;> simpa using hb
+    calc |ncMat (fun i => (v i : ℚ)) i j| * u j ≤ B * 1 :=
+          mul_le_mul hm (hu1 j).le (hu0 j) (by positivity)
+      _ = B := mul_one _
+  refine (sum_le_sum this).trans (le_of_eq ?_)
+  simp
+
+theorem card_coset_le {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (S : Finset (Fin n)) (τ : Fin n → ZMod q) (B : ℕ)
+    (hB : q ^ S.card < (B + 1) ^ n) :
+    ((hbox lo w).filter fun f => ∀ k ∈ S, nttP ζ (fun s => (f s : ZMod q)) k = τ k).card
+        * q ^ S.card ≤ (w + 2 * (n * B)) ^ n := by
+  classical
+  -- Step 1: a short nonzero vector with vanishing NTT on `S`.
+  obtain ⟨v, hv0, hvB, hvS⟩ : ∃ v : Fin n → ℤ, v ≠ 0 ∧ (∀ i, |v i| ≤ B) ∧
+      ∀ k ∈ S, N ζ v k = 0 := by
+    have hc : (univ : Finset (S → ZMod q)).card
+        < (Fintype.piFinset fun _ : Fin n => Finset.Icc (0 : ℤ) B).card := by
+      rw [Fintype.card_piFinset, card_univ, Fintype.card_fun, ZMod.card, Fintype.card_coe]
+      simpa using hB
+    obtain ⟨x, hx, y, hy, hxy, he⟩ := Finset.exists_ne_map_eq_of_card_lt_of_maps_to hc
+      (f := fun x (k : S) => N ζ x k) (fun _ _ => by simp)
+    refine ⟨x - y, sub_ne_zero.mpr hxy, fun i => ?_, fun k hk => ?_⟩
+    · have h1 := Finset.mem_Icc.mp (Fintype.mem_piFinset.mp hx i)
+      have h2 := Finset.mem_Icc.mp (Fintype.mem_piFinset.mp hy i)
+      simp only [Pi.sub_apply, abs_le]; constructor <;> omega
+    · rw [N_sub, sub_eq_zero]
+      exact congrFun he ⟨k, hk⟩
+  -- Step 3: reduction.
+  set M := ncMat (fun i => (v i : ℚ)) with hM
+  have hdet : IsUnit M.det := (hinv v hv0).isUnit
+  let fl : (Fin n → ℤ) → Fin n → ℤ := fun x j => ⌊(M⁻¹ *ᵥ fun i => (x i : ℚ)) j⌋
+  let red : (Fin n → ℤ) → Fin n → ℤ := fun x => x - ncMat v *ᵥ fl x
+  have hredN : ∀ x, ∀ k ∈ S, N ζ (red x) k = N ζ x k := by
+    intro x k hk
+    simp only [red]
+    rw [N_sub, N_ideal h, hvS k hk, zero_mul, sub_zero]
+  have hredB : ∀ x i, |red x i| ≤ (n * B : ℕ) := by
+    intro x i
+    set t := M⁻¹ *ᵥ fun i => (x i : ℚ)
+    have hcast : ((red x i : ℤ) : ℚ) = (M *ᵥ fun j => Int.fract (t j)) i := by
+      have hMt : M *ᵥ t = fun i => (x i : ℚ) := by
+        simp only [t, Matrix.mulVec_mulVec, Matrix.mul_nonsing_inv M hdet, Matrix.one_mulVec]
+      have : (fun j => Int.fract (t j)) = t - fun j => ((fl x j : ℤ) : ℚ) := by
+        funext j; rfl
+      rw [this, Matrix.mulVec_sub, hMt]
+      simp only [red, Pi.sub_apply, Int.cast_sub, cast_mulVec, hM]
+    have := abs_mulVec_le v B hvB (fun j => Int.fract (t j)) (fun j => Int.fract_nonneg _)
+      (fun j => Int.fract_lt_one _) i
+    rw [← hM, ← hcast] at this
+    exact_mod_cast this
+  -- Step 4: representatives.
+  set r := S.card
+  set R : Finset (Fin n → ℤ) :=
+    Fintype.piFinset fun s => if (s : ℕ) < r then Finset.Ico (0 : ℤ) q else {0}
+  have hRcard : R.card = q ^ r := by
+    rw [Fintype.card_piFinset]
+    have : ∀ s : Fin n, ((if (s : ℕ) < r then Finset.Ico (0 : ℤ) q else {0}).card)
+        = if (s : ℕ) < r then q else 1 := by
+      intro s; split_ifs <;> simp
+    simp_rw [this]
+    rw [← Finset.prod_filter, prod_const, Fin.card_filter_val_lt]
+    have : r ≤ n := by simpa using Finset.card_le_univ S
+    rw [min_eq_right this]
+  have hRinj : ∀ x ∈ R, ∀ y ∈ R, (∀ k ∈ S, N ζ x k = N ζ y k) → x = y := by
+    intro x hx y hy he
+    have hq : 0 < (q : ℤ) := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+    have mem : ∀ z ∈ R, z ∈ hbox (fun _ => 0) q := by
+      intro z hz
+      refine Fintype.mem_piFinset.mpr fun s => ?_
+      have := Fintype.mem_piFinset.mp hz s
+      split_ifs at this
+      · simpa using this
+      · simp at this; rw [this, Finset.mem_Ico]; exact ⟨le_rfl, by simpa using hq⟩
+    refine win_inj_P h.inj le_rfl S (mem x hx) (mem y hy) (fun s hs => ?_) fun k hk => ?_
+    · have h1 := Fintype.mem_piFinset.mp hx s
+      have h2 := Fintype.mem_piFinset.mp hy s
+      simp only [show ¬ ((s : ℕ) < r) from by omega, ↓reduceIte, Finset.mem_singleton] at h1 h2
+      rw [h1, h2]
+    · exact (N_sub ζ x y k).trans (by rw [he k hk, sub_self])
+  -- Step 5: packing.
+  set F := (hbox lo w).filter fun f => ∀ k ∈ S, nttP ζ (fun s => (f s : ZMod q)) k = τ k
+  have hmaps : ∀ p ∈ F ×ˢ R, (p.1 + red p.2) ∈ hbox (fun s => lo s - (n * B : ℕ)) (w + 2 * (n * B)) := by
+    intro p hp
+    obtain ⟨hf, -⟩ := Finset.mem_product.mp hp
+    refine Fintype.mem_piFinset.mpr fun s => ?_
+    have h1 := Finset.mem_Ico.mp (Fintype.mem_piFinset.mp (Finset.mem_filter.mp hf).1 s)
+    have h2 := abs_le.mp (hredB p.2 s)
+    rw [Finset.mem_Ico, Pi.add_apply]
+    push_cast at h2 ⊢
+    constructor <;> linarith [h2.1, h2.2]
+  have hinj : Set.InjOn (fun p : (Fin n → ℤ) × (Fin n → ℤ) => p.1 + red p.2)
+      ((F ×ˢ R : Finset _) : Set _) := by
+    rintro ⟨f, x⟩ hp ⟨f', x'⟩ hp' he
+    obtain ⟨hf, hx⟩ := Finset.mem_product.mp hp
+    obtain ⟨hf', hx'⟩ := Finset.mem_product.mp hp'
+    simp only at he hf hx hf' hx'
+    have hxx : x = x' := by
+      refine hRinj x hx x' hx' fun k hk => ?_
+      have e := congrArg (fun z => N ζ z k) he
+      simp only [N_add] at e
+      have t1 := (Finset.mem_filter.mp hf).2 k hk
+      have t2 := (Finset.mem_filter.mp hf').2 k hk
+      rw [← hredN x k hk, ← hredN x' k hk]
+      simp only [N] at e ⊢
+      rw [t1, t2] at e
+      exact add_left_cancel e
+    subst hxx
+    simp only [Prod.mk.injEq, and_true]
+    exact add_right_cancel he
+  have := Finset.card_le_card_of_injOn _ hmaps hinj
+  rw [Finset.card_product, hRcard, card_hbox] at this
+  exact this
+
+end Packing
+
+end
+
+end PackingPart
+
+section NcInvPart
+
+open Polynomial Matrix
+
+namespace Packing
+
+
+/-- Column `t` of `ncMat a`, read in the powers of `r` with `r ^ n = -1`, is `A * r ^ t`. -/
+lemma ncMat_col_sum {L : Type*} [CommRing L] {n : ℕ} [NeZero n] (r : L) (hr : r ^ n = -1)
+    (a : Fin n → L) (t : Fin n) :
+    ∑ s, ncMat a s t * r ^ (s : ℕ) = (∑ k, a k * r ^ (k : ℕ)) * r ^ (t : ℕ) := by
+  rw [Finset.sum_mul, ← Equiv.sum_comp (Equiv.addRight t)]
+  refine Finset.sum_congr rfl fun k _ => ?_
+  simp only [Equiv.coe_addRight, ncMat, add_sub_cancel_right]
+  rw [mul_assoc, ← pow_add]
+  rcases lt_or_ge ((k : ℕ) + t) n with h | h
+  · have hv : ((k + t : Fin n) : ℕ) = k + t := by rw [Fin.val_add, Nat.mod_eq_of_lt h]
+    have : t ≤ k + t := by rw [Fin.le_iff_val_le_val, hv]; omega
+    simp only [this, ↓reduceIte, hv]
+  · have hv : ((k + t : Fin n) : ℕ) = k + t - n := by
+      rw [Fin.val_add, Nat.mod_eq_sub_mod h, Nat.mod_eq_of_lt (by omega)]
+    have : ¬ t ≤ k + t := by rw [Fin.le_iff_val_le_val, hv]; omega
+    simp only [this, ↓reduceIte, hv]
+    obtain ⟨m, hm⟩ : ∃ m, (k : ℕ) + t = n + m := ⟨_, (Nat.add_sub_cancel' h).symm⟩
+    rw [hm, Nat.add_sub_cancel_left, pow_add, hr]; ring
+
+/-- General criterion: if `r ^ n = -1` in a domain and `1, r, …, r^(n-1)` are independent,
+then `ncMat a` is nonsingular for every nonzero `a`. -/
+theorem ncMat_det_ne_zero_of {K L : Type*} [Field K] [CommRing L] [IsDomain L] [Algebra K L]
+    {n : ℕ} [NeZero n] (r : L) (hr : r ^ n = -1)
+    (hli : LinearIndependent K (fun i : Fin n => r ^ (i : ℕ)))
+    (a : Fin n → K) (ha : a ≠ 0) : (ncMat a).det ≠ 0 := by
+  intro hdet
+  obtain ⟨x, hx0, hx⟩ := Matrix.exists_mulVec_eq_zero_iff.mpr hdet
+  have hA : (∑ k, a k • r ^ (k : ℕ)) ≠ 0 := by
+    intro h
+    exact ha (funext fun i => Fintype.linearIndependent_iff.mp hli a h i)
+  have hX : (∑ t, x t • r ^ (t : ℕ)) ≠ 0 := by
+    intro h
+    exact hx0 (funext fun i => Fintype.linearIndependent_iff.mp hli x h i)
+  apply mul_ne_zero hA hX
+  have key : ∀ t : Fin n, ∑ s, algebraMap K L (ncMat a s t) * r ^ (s : ℕ)
+      = (∑ k, a k • r ^ (k : ℕ)) * r ^ (t : ℕ) := by
+    intro t
+    have := ncMat_col_sum r hr (fun i => algebraMap K L (a i)) t
+    simp only [Algebra.smul_def]
+    rw [← this]
+    refine Finset.sum_congr rfl fun s _ => ?_
+    simp only [ncMat]; split_ifs <;> simp
+  calc (∑ k, a k • r ^ (k : ℕ)) * ∑ t, x t • r ^ (t : ℕ)
+      = ∑ t, x t • ∑ s, algebraMap K L (ncMat a s t) * r ^ (s : ℕ) := by
+        rw [Finset.mul_sum]
+        refine Finset.sum_congr rfl fun t _ => ?_
+        rw [key, mul_smul_comm]
+    _ = ∑ s, (ncMat a *ᵥ x) s • r ^ (s : ℕ) := by
+        simp only [Finset.smul_sum, Matrix.mulVec, dotProduct, Finset.sum_smul]
+        rw [Finset.sum_comm]
+        refine Finset.sum_congr rfl fun s _ => Finset.sum_congr rfl fun t _ => ?_
+        simp only [Algebra.smul_def, map_mul]; ring
+    _ = 0 := by simp [hx]
+
+lemma X_pow_two_pow_add_one_eq_cyclotomic (k : ℕ) :
+    (X ^ (2 ^ k) + 1 : ℚ[X]) = cyclotomic (2 ^ (k + 1)) ℚ := by
+  rw [cyclotomic_prime_pow_eq_geom_sum Nat.prime_two]
+  simp [Finset.sum_range_succ, add_comm]
+
+/-- For `n = 2 ^ k`, `ncMat a` over ℚ is nonsingular for every nonzero `a`. -/
+theorem ncMat_det_ne_zero_two_pow (k : ℕ) (a : Fin (2 ^ k) → ℚ) (ha : a ≠ 0) :
+    (ncMat a).det ≠ 0 := by
+  obtain ⟨f, hf⟩ : ∃ f : ℚ[X], f = X ^ (2 ^ k) + 1 := ⟨_, rfl⟩
+  have hirr : Irreducible f := by
+    rw [hf, X_pow_two_pow_add_one_eq_cyclotomic]
+    exact cyclotomic.irreducible_rat (by positivity)
+  have hmon : f.Monic := by
+    rw [hf, ← C_1]; exact monic_X_pow_add_C _ (by positivity)
+  have hdeg : f.natDegree = 2 ^ k := by rw [hf, ← C_1]; exact natDegree_X_pow_add_C
+  have hmin : minpoly ℚ (AdjoinRoot.root f) = f := by
+    have := AdjoinRoot.minpoly_root hirr.ne_zero
+    rw [hmon.leadingCoeff] at this; simpa using this
+  have hli := linearIndependent_pow (K := ℚ) (AdjoinRoot.root f)
+  have hr : AdjoinRoot.root f ^ (2 ^ k) = -1 := by
+    have h0 : AdjoinRoot.mk f (X ^ (2 ^ k) + 1) = 0 := by rw [← hf]; exact AdjoinRoot.mk_self
+    rw [map_add, map_pow, AdjoinRoot.mk_X, map_one] at h0
+    exact eq_neg_of_add_eq_zero_left h0
+  revert hli
+  generalize hm : (minpoly ℚ (AdjoinRoot.root f)).natDegree = m
+  rw [hmin, hdeg] at hm
+  subst hm
+  intro hli
+  have : Fact (Irreducible f) := ⟨hirr⟩
+  exact ncMat_det_ne_zero_of (AdjoinRoot.root f) hr hli a ha
+
+theorem ncMat_det_ne_zero (v : Fin 256 → ℤ) (hv : v ≠ 0) :
+    (ncMat (fun i => (v i : ℚ))).det ≠ 0 := by
+  have h := ncMat_det_ne_zero_two_pow 8 (fun i => (v i : ℚ)) (by
+    intro h; apply hv; funext i; simpa using congrFun h i)
+  exact h
+
+end Packing
+
+end NcInvPart
+
 section AltR0ExcPart
 
 /-!
@@ -2977,6 +3276,357 @@ end AltR0
 end
 
 end AltR0ExcPart
+
+section AltR0QPart
+
+/-!
+# alt-r0 degenerate-slot probabilities with `1/q` in place of `1/w`
+
+Versions of `prob_Z`, `prob_deg_ge`, `prob_Z_exc`, `prob_deg_exc` in which the head counts are
+bounded by the packing bound `Packing.card_coset_le`, at the cost of the constant
+`cst = (w + 2nB)^n / w^n`.
+-/
+
+open Finset
+
+noncomputable section
+
+namespace AltR0
+open RejOrder
+
+variable {q : ℕ} [NeZero q] [Fact q.Prime] {n L : ℕ}
+
+omit [Fact q.Prime] in
+lemma qpow_lt_of_le {B a b : ℕ} (hab : a ≤ b) (hb : q ^ b < (B + 1) ^ n) :
+    q ^ a < (B + 1) ^ n :=
+  lt_of_le_of_lt (Nat.pow_le_pow_right (Nat.pos_of_ne_zero (NeZero.ne q)) hab) hb
+
+/-- Rational form of `Packing.card_coset_le`. -/
+lemma card_coset_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (S : Finset (Fin n)) (τ : Fin n → ZMod q) (B : ℕ)
+    (hB : q ^ S.card < (B + 1) ^ n) :
+    (((hbox lo w).filter fun f => ∀ k ∈ S, nttP ζ (fun s => (f s : ZMod q)) k = τ k).card : ℚ)
+      ≤ ((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ S.card := by
+  have hc := Packing.card_coset_le (lo := lo) (w := w) h hinv S τ B hB
+  have hq : (0 : ℚ) < (q : ℚ) ^ S.card := by
+    have : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+    positivity
+  rw [le_div_iff₀ hq]
+  exact_mod_cast hc
+
+/-- Head pairs whose difference has vanishing NTT on `D`, packing version. -/
+lemma card_head_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (D : Finset (Fin n)) (B : ℕ) (hB : q ^ D.card < (B + 1) ^ n) :
+    (((hbox lo w ×ˢ hbox lo w).filter fun ff =>
+        ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0).card : ℚ)
+      ≤ (w : ℚ) ^ n * (((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ D.card) := by
+  have e : ((hbox lo w ×ˢ hbox lo w).filter fun ff =>
+        ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0).card
+      = ∑ g ∈ hbox lo w, ((hbox lo w).filter fun f => ∀ k ∈ D,
+          nttP ζ (fun s => (f s : ZMod q)) k = nttP ζ (fun s => (g s : ZMod q)) k).card := by
+    rw [Finset.card_filter, Finset.sum_product_right]
+    refine sum_congr rfl fun g _ => ?_
+    rw [Finset.card_filter]
+    refine sum_congr rfl fun f _ => ?_
+    simp only [nttP_intsub, sub_eq_zero]
+  rw [e]
+  push_cast
+  calc ∑ g ∈ hbox lo w, (((hbox lo w).filter fun f => ∀ k ∈ D,
+          nttP ζ (fun s => (f s : ZMod q)) k = nttP ζ (fun s => (g s : ZMod q)) k).card : ℚ)
+      ≤ ∑ _g ∈ hbox lo w, ((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ D.card :=
+        sum_le_sum fun g _ => card_coset_q h hinv D _ B hB
+    _ = _ := by rw [sum_const, card_hbox, nsmul_eq_mul]; push_cast; ring
+
+/-- Head pairs with `y₁` vanishing on `X₁`, `y₁'` vanishing on `X₂` and the difference
+vanishing on `D`, packing version. -/
+lemma card_head2_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (X₁ X₂ D : Finset (Fin n)) (B : ℕ)
+    (hB1 : q ^ X₁.card < (B + 1) ^ n) (hB2 : q ^ (X₂ ∪ D).card < (B + 1) ^ n) :
+    (((hbox lo w ×ˢ hbox lo w).filter fun ff =>
+        (∀ k ∈ X₁, nttP ζ (fun s => (ff.1 s : ZMod q)) k = 0) ∧
+        (∀ k ∈ X₂, nttP ζ (fun s => (ff.2 s : ZMod q)) k = 0) ∧
+        ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0).card : ℚ)
+      ≤ (((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ X₁.card)
+        * (((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ (X₂ ∪ D).card) := by
+  set c : (Fin n → ℤ) → Fin n → ZMod q := fun f k =>
+    if k ∈ D then nttP ζ (fun s => (f s : ZMod q)) k else 0 with hc
+  have hsub : ((hbox lo w ×ˢ hbox lo w).filter fun ff =>
+        (∀ k ∈ X₁, nttP ζ (fun s => (ff.1 s : ZMod q)) k = 0) ∧
+        (∀ k ∈ X₂, nttP ζ (fun s => (ff.2 s : ZMod q)) k = 0) ∧
+        ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0)
+      ⊆ ((hbox lo w).filter fun f => ∀ k ∈ X₁, nttP ζ (fun s => (f s : ZMod q)) k
+          = (fun _ => (0 : ZMod q)) k).biUnion fun f =>
+        ((hbox lo w).filter fun g => ∀ k ∈ X₂ ∪ D, nttP ζ (fun s => (g s : ZMod q)) k
+          = c f k).image fun g => (f, g) := by
+    rintro ⟨f, g⟩ hx
+    obtain ⟨hm, h1, h2, h3⟩ := Finset.mem_filter.mp hx
+    obtain ⟨hf, hg⟩ := Finset.mem_product.mp hm
+    refine Finset.mem_biUnion.mpr ⟨f, Finset.mem_filter.mpr ⟨hf, h1⟩,
+      Finset.mem_image.mpr ⟨g, Finset.mem_filter.mpr ⟨hg, fun k hk => ?_⟩, rfl⟩⟩
+    simp only [hc]
+    split_ifs with hkD
+    · have := h3 k hkD
+      rw [nttP_intsub] at this
+      exact (sub_eq_zero.mp this).symm
+    · exact h2 k ((Finset.mem_union.mp hk).resolve_right hkD)
+  refine (Nat.cast_le.mpr ((Finset.card_le_card hsub).trans card_biUnion_le)).trans ?_
+  push_cast
+  refine (Finset.sum_le_sum fun f _ => (Nat.cast_le.mpr card_image_le).trans
+    (card_coset_q h hinv _ (c f) B hB2)).trans ?_
+  rw [sum_const, nsmul_eq_mul]
+  exact mul_le_mul_of_nonneg_right (card_coset_q h hinv X₁ _ B hB1) (by positivity)
+
+/-- **A given set of slots is degenerate** with probability at most `cst · p^|Z|`,
+`p = 1/q + (2γ₁)^{-(L-1)}`, `cst = (w + 2nB)^n / w^n`. -/
+lemma prob_Z_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (h₀ : Fin L) (B : ℕ) (Z : Finset (Fin n)) (hZ : q ^ Z.card < (B + 1) ^ n) :
+    prob (trip lo w γ₁ h₀) (fun x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2))
+      ≤ ((w : ℚ) + 2 * (n * B)) ^ n / (w : ℚ) ^ n
+        * (1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ Z.card := by
+  set A : Finset (Fin n) → Finset ((Fin n → ℤ) × (Fin n → ℤ)) := fun D =>
+    (hbox lo w ×ˢ hbox lo w).filter fun ff =>
+      ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0
+  set Bt : Finset (Fin n) → Finset (Fin L → Fin n → ℤ) := fun E =>
+    (tbox γ₁ h₀).filter fun t => ∀ j, j ≠ h₀ → ∀ k ∈ E, nttP ζ (fun s => (t j s : ZMod q)) k = 0
+  have hsub : (trip lo w γ₁ h₀).filter (fun x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2))
+      ⊆ Z.powerset.biUnion fun D => A D ×ˢ Bt (Z \ D) := by
+    intro x hx
+    obtain ⟨hxm, hZ⟩ := Finset.mem_filter.mp hx
+    obtain ⟨hff, ht⟩ := Finset.mem_product.mp hxm
+    set D := Z.filter fun k => nttP ζ (fun s => ((x.1.1 s - x.1.2 s : ℤ) : ZMod q)) k = 0
+    refine Finset.mem_biUnion.mpr ⟨D, Finset.mem_powerset.mpr (Finset.filter_subset _ _), ?_⟩
+    refine Finset.mem_product.mpr ⟨Finset.mem_filter.mpr ⟨hff, fun k hk =>
+      (Finset.mem_filter.mp hk).2⟩, Finset.mem_filter.mpr ⟨ht, fun j hj k hk => ?_⟩⟩
+    obtain ⟨hkZ, hkD⟩ := Finset.mem_sdiff.mp hk
+    rcases degS_sub ζ h₀ x.1.1 x.1.2 x.2 k (hZ hkZ) with h | h
+    · exact absurd (Finset.mem_filter.mpr ⟨hkZ, h⟩) hkD
+    · exact h j hj
+  have hw' : (0 : ℚ) < w := by exact_mod_cast hw0
+  have hg' : (0 : ℚ) < 2 * γ₁ := by exact_mod_cast (by omega : 0 < 2 * γ₁)
+  have hq' : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+  have hcard : ((trip lo w γ₁ h₀).card : ℚ)
+      = (w : ℚ) ^ n * (w : ℚ) ^ n * (((2 * γ₁ : ℚ)) ^ n) ^ (L - 1) := by
+    rw [trip, card_product, card_product, card_hbox, card_tbox]; push_cast; ring
+  unfold prob
+  rw [div_le_iff₀ (by rw [hcard]; positivity)]
+  have hcount := Finset.card_le_card hsub
+  refine (Nat.cast_le.mpr (hcount.trans card_biUnion_le)).trans ?_
+  push_cast
+  have hprod : (1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ Z.card
+      = ∑ D ∈ Z.powerset, (1 / (q : ℚ)) ^ D.card * (1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ (Z \ D).card := by
+    rw [← Finset.prod_const, Finset.prod_add]
+    simp only [prod_const]
+  rw [hprod, Finset.mul_sum, Finset.sum_mul]
+  refine Finset.sum_le_sum fun D hD => ?_
+  have hDZ : D ⊆ Z := Finset.mem_powerset.mp hD
+  have hEn : (Z \ D).card ≤ n := by simpa using Finset.card_le_univ (Z \ D)
+  rw [card_product]
+  push_cast
+  have ha : ((A D).card : ℚ)
+      ≤ (w : ℚ) ^ n * (((w : ℚ) + 2 * (n * B)) ^ n / (q : ℚ) ^ D.card) :=
+    card_head_q h hinv D B (qpow_lt_of_le (Finset.card_le_card hDZ) hZ)
+  have hb : ((Bt (Z \ D)).card : ℚ) ≤ (((2 * γ₁ : ℚ)) ^ (n - (Z \ D).card)) ^ (L - 1) := by
+    exact_mod_cast card_tail_le h.inj hγ1 hγ h₀ (Z \ D)
+  refine (mul_le_mul ha hb (by positivity) (by positivity)).trans (le_of_eq ?_)
+  rw [hcard, pow_sub₀ _ hg'.ne' hEn]
+  have hwne : (w : ℚ) ≠ 0 := hw'.ne'
+  have hgne : (2 * γ₁ : ℚ) ≠ 0 := hg'.ne'
+  have hqne : (q : ℚ) ≠ 0 := hq'.ne'
+  simp only [div_eq_mul_inv, one_mul, inv_pow, mul_pow, ← pow_mul]
+  field_simp
+  ring
+
+/-- **`d` degenerate slots** occur with probability at most `cst · C(n,d) · p^d`. -/
+lemma prob_deg_ge_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (h₀ : Fin L) (B : ℕ) (d : ℕ) (hd : q ^ d < (B + 1) ^ n) :
+    prob (trip lo w γ₁ h₀) (fun x => d ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card)
+      ≤ ((w : ℚ) + 2 * (n * B)) ^ n / (w : ℚ) ^ n
+        * (n.choose d * (1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ d) := by
+  refine (prob_le_sum _ ((univ : Finset (Fin n)).powersetCard d) _
+    (fun Z x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)) fun x _ hx => ?_).trans ?_
+  · obtain ⟨Z, hZ, hc⟩ := Finset.exists_subset_card_eq hx
+    exact ⟨Z, Finset.mem_powersetCard.mpr ⟨Finset.subset_univ _, hc⟩, hZ⟩
+  · refine (Finset.sum_le_sum fun Z hZ => prob_Z_q h hinv hw0 hγ1 hγ h₀ B Z
+      (by rw [(Finset.mem_powersetCard.mp hZ).2]; exact hd)).trans (le_of_eq ?_)
+    rw [Finset.sum_congr rfl fun Z hZ => by rw [(Finset.mem_powersetCard.mp hZ).2], sum_const,
+      Finset.card_powersetCard, card_univ, Fintype.card_fin, nsmul_eq_mul]
+    ring
+
+/-- **A given set of slots is degenerate and contains an exceptional slot** with probability at
+most `cst² · ((p + e)^|Z| - p^|Z|)`, `p = 1/q + (2γ₁)^{-(L-1)}`, `e = 2 / (q (2γ₁)^(L-1))`. -/
+lemma prob_Z_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (h₀ : Fin L) (B : ℕ) (Z : Finset (Fin n)) (hZ : q ^ Z.card < (B + 1) ^ n) :
+    prob (trip lo w γ₁ h₀) (fun x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2) ∧
+        (Z ∩ exc ζ h₀ x.1.1 x.1.2 x.2).Nonempty)
+      ≤ (((w : ℚ) + 2 * (n * B)) ^ n / (w : ℚ) ^ n) ^ 2
+        * ((1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)
+          + 2 / ((q : ℚ) * ((2 * γ₁ : ℚ)) ^ (L - 1))) ^ Z.card
+        - (1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ Z.card) := by
+  set A : Finset (Fin n) → Finset (Fin n) → Finset (Fin n) →
+      Finset ((Fin n → ℤ) × (Fin n → ℤ)) := fun X₁ X₂ D =>
+    (hbox lo w ×ˢ hbox lo w).filter fun ff =>
+        (∀ k ∈ X₁, nttP ζ (fun s => (ff.1 s : ZMod q)) k = 0) ∧
+        (∀ k ∈ X₂, nttP ζ (fun s => (ff.2 s : ZMod q)) k = 0) ∧
+        ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0 with hA
+  set Bt : Finset (Fin n) → Finset (Fin L → Fin n → ℤ) := fun E =>
+    (tbox γ₁ h₀).filter fun t => ∀ j, j ≠ h₀ → ∀ k ∈ E, nttP ζ (fun s => (t j s : ZMod q)) k = 0
+    with hBt
+  have hsub : (trip lo w γ₁ h₀).filter (fun x =>
+        Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2) ∧
+        (Z ∩ exc ζ h₀ x.1.1 x.1.2 x.2).Nonempty)
+      ⊆ (Z.powerset.erase ∅).biUnion fun X => X.powerset.biUnion fun X₁ =>
+          (Z \ X).powerset.biUnion fun D => A X₁ (X \ X₁) D ×ˢ Bt (X ∪ ((Z \ X) \ D)) := by
+    intro x hx
+    obtain ⟨hxm, hZ, hne⟩ := Finset.mem_filter.mp hx
+    obtain ⟨hff, ht⟩ := Finset.mem_product.mp hxm
+    set X := Z ∩ exc ζ h₀ x.1.1 x.1.2 x.2 with hX
+    set X₁ := X.filter fun k => nttP ζ (fun s => (x.1.1 s : ZMod q)) k = 0
+    set D := (Z \ X).filter fun k => nttP ζ (fun s => ((x.1.1 s - x.1.2 s : ℤ) : ZMod q)) k = 0
+    have hXZ : X ⊆ Z := Finset.inter_subset_left
+    have hexc : ∀ k ∈ X, k ∈ exc ζ h₀ x.1.1 x.1.2 x.2 := fun k hk => (Finset.mem_inter.mp hk).2
+    refine Finset.mem_biUnion.mpr ⟨X, Finset.mem_erase.mpr ⟨hne.ne_empty,
+      Finset.mem_powerset.mpr hXZ⟩, ?_⟩
+    refine Finset.mem_biUnion.mpr ⟨X₁, Finset.mem_powerset.mpr (Finset.filter_subset _ _), ?_⟩
+    refine Finset.mem_biUnion.mpr ⟨D, Finset.mem_powerset.mpr (Finset.filter_subset _ _), ?_⟩
+    refine Finset.mem_product.mpr ⟨Finset.mem_filter.mpr ⟨hff,
+      fun k hk => (Finset.mem_filter.mp hk).2, fun k hk => ?_,
+      fun k hk => (Finset.mem_filter.mp hk).2⟩, Finset.mem_filter.mpr ⟨ht, fun j hj k hk => ?_⟩⟩
+    · obtain ⟨hkX, hk1⟩ := Finset.mem_sdiff.mp hk
+      rcases ((Finset.mem_filter.mp (hexc k hkX)).2).2 with h | h
+      · exact absurd (Finset.mem_filter.mpr ⟨hkX, h⟩) hk1
+      · exact h
+    · rcases Finset.mem_union.mp hk with hkX | hkE
+      · exact ((Finset.mem_filter.mp (hexc k hkX)).2).1 j hj
+      · obtain ⟨hk2, hkD⟩ := Finset.mem_sdiff.mp hkE
+        obtain ⟨hkZ, _⟩ := Finset.mem_sdiff.mp hk2
+        rcases degS_sub ζ h₀ x.1.1 x.1.2 x.2 k (hZ hkZ) with h | h
+        · exact absurd (Finset.mem_filter.mpr ⟨hk2, h⟩) hkD
+        · exact h j hj
+  have hw' : (0 : ℚ) < w := by exact_mod_cast hw0
+  have hg' : (0 : ℚ) < 2 * γ₁ := by exact_mod_cast (by omega : 0 < 2 * γ₁)
+  have hq' : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+  have hcard : ((trip lo w γ₁ h₀).card : ℚ)
+      = (w : ℚ) ^ n * (w : ℚ) ^ n * (((2 * γ₁ : ℚ)) ^ n) ^ (L - 1) := by
+    rw [trip, card_product, card_product, card_hbox, card_tbox]; push_cast; ring
+  set cst : ℚ := ((w : ℚ) + 2 * (n * B)) ^ n / (w : ℚ) ^ n with hcst
+  set τ : ℚ := 1 / ((2 * γ₁ : ℚ)) ^ (L - 1) with hτ
+  set a : ℚ := 1 / ((q : ℚ) * ((2 * γ₁ : ℚ)) ^ (L - 1)) with ha
+  have hterm : ∀ X ∈ Z.powerset.erase ∅, ∀ X₁ ∈ X.powerset, ∀ D ∈ (Z \ X).powerset,
+      (((A X₁ (X \ X₁) D ×ˢ Bt (X ∪ ((Z \ X) \ D))).card : ℕ) : ℚ)
+        ≤ cst ^ 2 * ((a ^ X₁.card * a ^ (X \ X₁).card)
+          * ((1 / (q : ℚ)) ^ D.card * τ ^ ((Z \ X) \ D).card))
+          * (trip lo w γ₁ h₀).card := by
+    intro X hX X₁ hX₁ D hD
+    have hXZ : X ⊆ Z := Finset.mem_powerset.mp (Finset.mem_of_mem_erase hX)
+    have hX₁X : X₁ ⊆ X := Finset.mem_powerset.mp hX₁
+    have hDZ : D ⊆ Z \ X := Finset.mem_powerset.mp hD
+    have hdisj1 : Disjoint (X \ X₁) D := by
+      rw [Finset.disjoint_left]
+      intro k hk hkD
+      exact (Finset.mem_sdiff.mp (hDZ hkD)).2 (Finset.mem_sdiff.mp hk).1
+    have hdisj2 : Disjoint X ((Z \ X) \ D) := by
+      rw [Finset.disjoint_left]
+      intro k hk hkE
+      exact (Finset.mem_sdiff.mp (Finset.mem_sdiff.mp hkE).1).2 hk
+    have hB1 : q ^ X₁.card < (B + 1) ^ n :=
+      qpow_lt_of_le (Finset.card_le_card (hX₁X.trans hXZ)) hZ
+    have hB2 : q ^ ((X \ X₁) ∪ D).card < (B + 1) ^ n := by
+      refine qpow_lt_of_le (Finset.card_le_card ?_) hZ
+      refine Finset.union_subset ((Finset.sdiff_subset).trans hXZ) (hDZ.trans Finset.sdiff_subset)
+    have hc1 := card_head2_q (lo := lo) (w := w) h hinv X₁ (X \ X₁) D B hB1 hB2
+    have hc2 := card_tail_le h.inj hγ1 hγ h₀ (X ∪ ((Z \ X) \ D))
+    rw [Finset.card_union_of_disjoint hdisj1] at hc1
+    rw [Finset.card_union_of_disjoint hdisj2,
+      ← Finset.card_sdiff_add_card_eq_card hX₁X] at hc2
+    have hn3 : (X \ X₁).card + X₁.card + ((Z \ X) \ D).card ≤ n := by
+      rw [Finset.card_sdiff_add_card_eq_card hX₁X, ← Finset.card_union_of_disjoint hdisj2]
+      simpa using Finset.card_le_univ (X ∪ ((Z \ X) \ D))
+    rw [card_product]
+    push_cast
+    have hb' : ((Bt (X ∪ ((Z \ X) \ D))).card : ℚ)
+        ≤ (((2 * γ₁ : ℚ)) ^ (n - ((X \ X₁).card + X₁.card + ((Z \ X) \ D).card))) ^ (L - 1) := by
+      exact_mod_cast hc2
+    refine (mul_le_mul hc1 hb' (by positivity) (by positivity)).trans (le_of_eq ?_)
+    rw [hcard, pow_right_comm (2 * (γ₁ : ℚ)) n (L - 1), pow_right_comm (2 * (γ₁ : ℚ)) _ (L - 1)]
+    simp only [ha, hτ, hcst]
+    have hG : (0 : ℚ) < ((2 * γ₁ : ℚ)) ^ (L - 1) := by positivity
+    generalize ((2 * γ₁ : ℚ)) ^ (L - 1) = G at hG ⊢
+    have hwne : (w : ℚ) ≠ 0 := hw'.ne'
+    have hqne : (q : ℚ) ≠ 0 := hq'.ne'
+    have hGne : G ≠ 0 := hG.ne'
+    rw [pow_sub₀ _ hGne hn3]
+    simp only [one_div, mul_inv, inv_pow, mul_pow, pow_add, div_pow]
+    field_simp
+  have hsum : ∑ X ∈ Z.powerset.erase ∅, ∑ X₁ ∈ X.powerset, ∑ D ∈ (Z \ X).powerset,
+      (a ^ X₁.card * a ^ (X \ X₁).card) * ((1 / (q : ℚ)) ^ D.card * τ ^ ((Z \ X) \ D).card)
+      = (1 / (q : ℚ) + τ + 2 / ((q : ℚ) * ((2 * γ₁ : ℚ)) ^ (L - 1))) ^ Z.card
+        - (1 / (q : ℚ) + τ) ^ Z.card := by
+    have h1 : ∀ X ∈ Z.powerset.erase ∅, ∑ X₁ ∈ X.powerset, ∑ D ∈ (Z \ X).powerset,
+        (a ^ X₁.card * a ^ (X \ X₁).card) * ((1 / (q : ℚ)) ^ D.card * τ ^ ((Z \ X) \ D).card)
+        = (a + a) ^ X.card * (1 / (q : ℚ) + τ) ^ (Z \ X).card := by
+      intro X _
+      simp_rw [← Finset.mul_sum, ← Finset.sum_mul, sum_powerset_pow]
+    rw [Finset.sum_congr rfl h1, Finset.sum_erase_eq_sub (Finset.empty_mem_powerset Z),
+      sum_powerset_pow]
+    simp only [card_empty, pow_zero, one_mul, sdiff_empty]
+    congr 2
+    simp only [ha]
+    ring
+  unfold prob
+  rw [div_le_iff₀ (by rw [hcard]; positivity)]
+  have hcount := (Finset.card_le_card hsub).trans (card_biUnion_le.trans (Finset.sum_le_sum
+    fun X _ => card_biUnion_le.trans (Finset.sum_le_sum fun X₁ _ => card_biUnion_le)))
+  refine (Nat.cast_le.mpr hcount).trans ?_
+  push_cast
+  rw [← hsum, Finset.mul_sum, Finset.sum_mul]
+  refine Finset.sum_le_sum fun X hX => ?_
+  rw [Finset.mul_sum, Finset.sum_mul]
+  refine Finset.sum_le_sum fun X₁ hX₁ => ?_
+  rw [Finset.mul_sum, Finset.sum_mul]
+  refine Finset.sum_le_sum fun D hD => ?_
+  exact_mod_cast hterm X hX X₁ hX₁ D hD
+
+/-- **`d` degenerate slots, one of them exceptional,** occur with probability at most
+`cst² · C(n,d) · ((p + e)^d - p^d)`. -/
+theorem prob_deg_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+    {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (h₀ : Fin L) (B : ℕ) (d : ℕ) (hd1 : 1 ≤ d) (hd : q ^ d < (B + 1) ^ n) :
+    prob (trip lo w γ₁ h₀) (fun x => d ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card ∧
+        (exc ζ h₀ x.1.1 x.1.2 x.2).Nonempty)
+      ≤ (((w : ℚ) + 2 * (n * B)) ^ n / (w : ℚ) ^ n) ^ 2
+        * (n.choose d * ((1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)
+            + 2 / ((q : ℚ) * ((2 * γ₁ : ℚ)) ^ (L - 1))) ^ d
+          - (1 / (q : ℚ) + 1 / ((2 * γ₁ : ℚ)) ^ (L - 1)) ^ d)) := by
+  refine (prob_le_sum _ ((univ : Finset (Fin n)).powersetCard d) _
+    (fun Z x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2) ∧
+      (Z ∩ exc ζ h₀ x.1.1 x.1.2 x.2).Nonempty) fun x _ hx => ?_).trans ?_
+  · obtain ⟨hc, s, hs⟩ := hx
+    have hsd := exc_sub_degS ζ h₀ x.1.1 x.1.2 x.2 hs
+    obtain ⟨Z, h1, h2, h3⟩ := Finset.exists_subsuperset_card_eq (s := {s})
+      (Finset.singleton_subset_iff.mpr hsd) (by simpa using hd1) hc
+    exact ⟨Z, Finset.mem_powersetCard.mpr ⟨Finset.subset_univ _, h3⟩, h2,
+      ⟨s, Finset.mem_inter.mpr ⟨h1 (Finset.mem_singleton_self s), hs⟩⟩⟩
+  · refine (Finset.sum_le_sum fun Z hZ => prob_Z_exc_q h hinv hw0 hγ1 hγ h₀ B Z
+      (by rw [(Finset.mem_powersetCard.mp hZ).2]; exact hd)).trans (le_of_eq ?_)
+    rw [Finset.sum_congr rfl fun Z hZ => by rw [(Finset.mem_powersetCard.mp hZ).2], sum_const,
+      Finset.card_powersetCard, card_univ, Fintype.card_fin, nsmul_eq_mul]
+    ring
+
+end AltR0
+
+end
+
+end AltR0QPart
 
 section AltR0SharpPart
 
@@ -3526,6 +4176,259 @@ theorem var_le_sharp
               = μ ^ 2 * Eb₁ e ^ 2 * ((n.choose e : ℚ) * (pe ^ e - pp ^ e)) by ring]
           exact mul_le_mul_of_nonneg_left (hprobs' e (Finset.mem_Icc.mp he).1) (by positivity)
 
+open Classical in
+/-- **Sharper second moment, general probabilities.** As `var_le_sharp`, but the slot
+probabilities are hypotheses: `c_m C(n,e) p_m^e` for `e` degenerate slots, and
+`c_e C(n,e) (p_e^e − p_m^e)` for those with an exceptional one. -/
+theorem var_le_gen
+    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
+    {γ₁ γ₂ β : ℕ} {v : Fin (K * n) → ℤ} {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) (hwq : w ≤ q)
+    (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q) (h₀ : Fin L)
+    (bt : ℚ) (hbt : 0 ≤ bt)
+    (hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card)
+    (dm₁ dm₂ : ℕ) (Eb₁ Eb₂ : ℕ → ℚ) (hEb₂0 : ∀ d, 0 ≤ Eb₂ d)
+    (hEb₁ : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm₂ →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0) ≤ Eb₁ S.card)
+    (hEb₂ : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm₁ →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then (bt ^ 2) ^ (supp ξ).card else 0) ≤ Eb₂ S.card)
+    (pm pe cm ce : ℚ)
+    (hPm : ∀ e, e ≤ dm₁ + 1 → prob (trip lo w γ₁ h₀) (fun x =>
+        e ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card) ≤ cm * (n.choose e * pm ^ e))
+    (hPexc : ∀ e, 1 ≤ e → e ≤ dm₂ + 1 → prob (trip lo w γ₁ h₀) (fun x =>
+        e ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card ∧ ¬ NX ζ h₀ x)
+      ≤ ce * (n.choose e * (pe ^ e - pm ^ e))) :
+    avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+        (∑ t ∈ tbox γ₁ h₀, (rhoC mulmat γ₂ β v lo w h₀ a t
+          - ∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q) ^ 2) / (tbox (n := n) γ₁ h₀).card)
+      ≤ cm * ((∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q) ^ 2 *
+          ∑ d ∈ Icc 1 dm₁, (n.choose d * pm ^ d) * Eb₂ d
+        + n.choose (dm₁ + 1) * pm ^ (dm₁ + 1))
+      + ce * ((∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q) ^ 2 *
+          ∑ d ∈ Icc 1 dm₂, (n.choose d * (pe ^ d - pm ^ d)) * Eb₁ d ^ 2
+        + n.choose (dm₂ + 1) * (pe ^ (dm₂ + 1) - pm ^ (dm₂ + 1))) := by
+  set μ : ℚ := ∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q with hμ
+  have hμ0 : 0 ≤ μ := Finset.prod_nonneg fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _)
+  have hμ1 : μ ≤ 1 := by
+    refine Finset.prod_le_one₀ (fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _))
+      fun r _ => ?_
+    have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+    rw [div_le_one hq]
+    exact_mod_cast (Finset.card_le_univ _).trans (by rw [ZMod.card])
+  have hHB : (hbox lo w).Nonempty := by
+    rw [← Finset.card_pos, card_hbox]; positivity
+  have hTB : (tbox (n := n) γ₁ h₀).Nonempty := by
+    rw [← Finset.card_pos, card_tbox]; positivity
+  -- the covariance of one triple
+  set X : (Fin K → Fin L → Fin n → ZMod q) → (((Fin n → ℤ) × (Fin n → ℤ)) × (Fin L → Fin n → ℤ))
+      → ℚ := fun a x =>
+    ((if phiHom h (zc (join h₀ x.1.1 x.2)) a ∈ Fintype.piFinset (good (q := q) γ₂ β v)
+      then (1 : ℚ) else 0) - μ) *
+    ((if phiHom h (zc (join h₀ x.1.2 x.2)) a ∈ Fintype.piFinset (good (q := q) γ₂ β v)
+      then (1 : ℚ) else 0) - μ) with hX
+  have hgne : ∀ r, (good (q := q) γ₂ β v r).Nonempty := by
+    intro r
+    by_contra hne
+    rw [Finset.not_nonempty_iff_eq_empty] at hne
+    have := hbad r
+    rw [hne, Finset.card_empty, Nat.cast_zero, mul_zero, sub_zero] at this
+    have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+    linarith
+  have hX1 : ∀ a x, X a x ≤ 1 := by
+    intro a x
+    simp only [hX]
+    have hb : ∀ P : Prop, [Decidable P] → |(if P then (1 : ℚ) else 0) - μ| ≤ 1 := by
+      intro P _; split_ifs <;> rw [abs_le] <;> constructor <;> linarith
+    calc _ ≤ |_ * _| := le_abs_self _
+      _ = _ := abs_mul _ _
+      _ ≤ 1 * 1 := mul_le_mul (hb _) (hb _) (abs_nonneg _) zero_le_one
+      _ = 1 := one_mul 1
+  set D : (((Fin n → ℤ) × (Fin n → ℤ)) × (Fin L → Fin n → ℤ)) → ℕ := fun x =>
+    (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+  set H₂ : ℕ → ℚ := fun d => ∑ e ∈ Icc 1 dm₁, (if e ≤ d then μ ^ 2 * Eb₂ e else 0)
+    + (if dm₁ + 1 ≤ d then 1 else 0)
+  set H₁ : ℕ → ℚ := fun d => ∑ e ∈ Icc 1 dm₂, (if e ≤ d then μ ^ 2 * Eb₁ e ^ 2 else 0)
+    + (if dm₂ + 1 ≤ d then 1 else 0)
+  have hH₂0 : ∀ d, 0 ≤ H₂ d := fun d => add_nonneg
+    (Finset.sum_nonneg fun e _ => by split_ifs <;> [exact mul_nonneg (sq_nonneg _) (hEb₂0 e); rfl])
+    (by split_ifs <;> norm_num)
+  have hH₁0 : ∀ d, 0 ≤ H₁ d := fun d => add_nonneg
+    (Finset.sum_nonneg fun e _ => by split_ifs <;> positivity) (by split_ifs <;> norm_num)
+  set Hf : (((Fin n → ℤ) × (Fin n → ℤ)) × (Fin L → Fin n → ℤ)) → ℚ := fun x =>
+    H₂ (D x) + (if NX ζ h₀ x then 0 else H₁ (D x))
+  have hP : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
+    exact_mod_cast Fintype.card_pos
+  -- trivial bound
+  have htriv : ∀ x, (∑ a, X a x) / Fintype.card (Fin K → Fin L → Fin n → ZMod q) ≤ 1 := by
+    intro x
+    rw [div_le_iff₀ hP]
+    calc ∑ a, X a x ≤ ∑ _a : Fin K → Fin L → Fin n → ZMod q, (1 : ℚ) :=
+          Finset.sum_le_sum fun a _ => hX1 a x
+      _ = 1 * Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by simp
+  -- a generic per-triple step: `cov ≤ μ² E` with `E` bounded by `Eb` up to `dm`, trivial above
+  have hstep : ∀ (dm : ℕ) (Eb : ℕ → ℚ) (E : ℚ) (H : ℕ → ℚ),
+      (∀ d, H d = ∑ e ∈ Icc 1 dm, (if e ≤ d then μ ^ 2 * Eb e else 0)
+        + (if dm + 1 ≤ d then 1 else 0)) → (∀ e, 0 ≤ μ ^ 2 * Eb e) →
+      ∀ x, (∑ a, X a x) / Fintype.card (Fin K → Fin L → Fin n → ZMod q) ≤ μ ^ 2 * E →
+      (D x = 0 → E = 0) → (1 ≤ D x → D x ≤ dm → E ≤ Eb (D x)) →
+      (∑ a, X a x) / Fintype.card (Fin K → Fin L → Fin n → ZMod q) ≤ H (D x) := by
+    intro dm Eb E H hH hEb0' x hmain hz hle
+    have hS0 : 0 ≤ ∑ e ∈ Icc 1 dm, (if e ≤ D x then μ ^ 2 * Eb e else 0) :=
+      Finset.sum_nonneg fun e _ => by split_ifs <;> [exact hEb0' e; rfl]
+    have hI0 : (0 : ℚ) ≤ if dm + 1 ≤ D x then 1 else 0 := by split_ifs <;> norm_num
+    rw [hH]
+    rcases Nat.eq_zero_or_pos (D x) with hD | hD
+    · rw [hz hD, mul_zero] at hmain; linarith
+    · by_cases hdm : D x ≤ dm
+      · have h1 : μ ^ 2 * E ≤ μ ^ 2 * Eb (D x) :=
+          mul_le_mul_of_nonneg_left (hle hD hdm) (sq_nonneg _)
+        have := Finset.single_le_sum (f := fun e => if e ≤ D x then μ ^ 2 * Eb e else 0)
+          (fun e _ => by split_ifs <;> [exact hEb0' e; rfl]) (Finset.mem_Icc.mpr ⟨hD, hdm⟩)
+        simp only [le_refl, if_true] at this
+        linarith
+      · rw [if_pos (by omega : dm + 1 ≤ D x)]; linarith [htriv x]
+  have hcov : ∀ x, (∑ a, X a x) / Fintype.card (Fin K → Fin L → Fin n → ZMod q) ≤ Hf x := by
+    intro x
+    have hc := cov_le (phiHom h (zc (join h₀ x.1.1 x.2))) (phiHom h (zc (join h₀ x.1.2 x.2)))
+      (good (q := q) γ₂ β v) hgne bt hbt hbad
+    have hzero : ∀ (c : ℚ) (f : ℕ → ℚ), D x = 0 → ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)) ξ then f (supp ξ).card
+          else 0) = 0 := by
+      intro _ f hD
+      refine Finset.sum_eq_zero fun ξ hξ => ?_
+      rw [if_neg]
+      intro hd
+      have hS : degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2) = ∅ := Finset.card_eq_zero.mp hD
+      rw [hS] at hd
+      exact (Finset.mem_erase.mp hξ).1 (dualIn_empty h.inj ξ hd)
+    by_cases hnx : NX ζ h₀ x
+    · -- sharp branch
+      have hpair := pair_sum_le (K := K) h₀ x.1.1 x.1.2 x.2 h hnx hbt
+      have hmain := (le_abs_self _).trans (hc.trans (mul_le_mul_of_nonneg_left hpair (sq_nonneg _)))
+      have := hstep dm₁ Eb₂ _ H₂ (fun d => rfl) (fun e => mul_nonneg (sq_nonneg _) (hEb₂0 e)) x
+        hmain (fun hD => hzero 0 (fun m => (bt ^ 2) ^ m) hD) (fun h1 h2 => hEb₂ _ h1 h2)
+      simp only [Hf, if_pos hnx, add_zero]; exact this
+    · -- old branch
+      set Ew : ℚ := ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)) ξ then bt ^ (supp ξ).card
+          else 0) with hEw
+      have hEw0 : 0 ≤ Ew := Finset.sum_nonneg fun ξ _ => by split_ifs <;> positivity
+      have hpair : (∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+          ∑ ξ' ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+            if (∀ a, ξ ⬝ᵥ phiHom h (zc (join h₀ x.1.1 x.2)) a
+                + ξ' ⬝ᵥ phiHom h (zc (join h₀ x.1.2 x.2)) a = 0) then
+              bt ^ ((univ.filter fun r => ξ r ≠ 0).card + (univ.filter fun r => ξ' r ≠ 0).card)
+            else 0) ≤ Ew ^ 2 := by
+        rw [sq, hEw, Finset.sum_mul_sum]
+        refine Finset.sum_le_sum fun ξ _ => Finset.sum_le_sum fun ξ' _ => ?_
+        split_ifs with ho h1 h2 h2 h1 h2 h2
+        · rw [pow_add]; rfl
+        · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).2 h2
+        · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
+        · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
+        all_goals first | positivity | simp
+      have hmain := (le_abs_self _).trans (hc.trans (mul_le_mul_of_nonneg_left hpair (sq_nonneg _)))
+      have := hstep dm₂ (fun e => Eb₁ e ^ 2) _ H₁ (fun d => rfl) (fun e => by positivity) x hmain
+        (fun hD => by rw [hEw, hzero 0 (fun m => bt ^ m) hD]; ring)
+        (fun h1 h2 => pow_le_pow_left₀ hEw0 (hEb₁ _ h1 h2) 2)
+      simp only [Hf, if_neg hnx]; linarith [hH₂0 (D x)]
+  have hHBc : (0 : ℚ) < (hbox lo w).card := by exact_mod_cast hHB.card_pos
+  have hTBc : (0 : ℚ) < (tbox (n := n) γ₁ h₀).card := by exact_mod_cast hTB.card_pos
+  have htrip : ((trip lo w γ₁ h₀).card : ℚ)
+      = (hbox lo w).card * (hbox lo w).card * (tbox (n := n) γ₁ h₀).card := by
+    rw [trip, card_product, card_product]; push_cast; ring
+  have htripc : (0 : ℚ) < (trip lo w γ₁ h₀).card := by rw [htrip]; positivity
+  have hPc : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
+    exact_mod_cast Fintype.card_pos
+  -- rewrite the inner average as an average over triples
+  have hsumtrip : ∀ a, ∑ x ∈ trip lo w γ₁ h₀, X a x
+      = ∑ t ∈ tbox γ₁ h₀, ∑ y₁ ∈ hbox lo w, ∑ y₁' ∈ hbox lo w, X a ((y₁, y₁'), t) := by
+    intro a
+    rw [trip, Finset.sum_product_right]
+    simp_rw [Finset.sum_product]
+  have step1 : ∀ a, (∑ t ∈ tbox γ₁ h₀, (rhoC mulmat γ₂ β v lo w h₀ a t - μ) ^ 2)
+      / (tbox (n := n) γ₁ h₀).card = (∑ x ∈ trip lo w γ₁ h₀, X a x) / (trip lo w γ₁ h₀).card := by
+    intro a
+    have e1 : ∀ t, (rhoC mulmat γ₂ β v lo w h₀ a t - μ) ^ 2
+        = (∑ y₁ ∈ hbox lo w, ∑ y₁' ∈ hbox lo w, X a ((y₁, y₁'), t)) / ((hbox lo w).card : ℚ) ^ 2 :=
+      fun t => sq_prob (hbox lo w) hHB _ μ
+    simp_rw [e1]
+    rw [← Finset.sum_div, hsumtrip, htrip]
+    field_simp
+  have hprobs : ∀ e, e ≤ dm₁ + 1 → ((((trip lo w γ₁ h₀).filter fun x => e ≤ D x).card : ℚ))
+      / (trip lo w γ₁ h₀).card ≤ cm * (n.choose e * pm ^ e) := fun e he => hPm e he
+  have hprobs' : ∀ e, 1 ≤ e → e ≤ dm₂ + 1 → ((((trip lo w γ₁ h₀).filter fun x =>
+      e ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ)) / (trip lo w γ₁ h₀).card
+      ≤ ce * (n.choose e * (pe ^ e - pm ^ e)) := fun e he he' => hPexc e he he'
+  have hsplit : ∑ x ∈ trip lo w γ₁ h₀, Hf x
+      = (∑ e ∈ Icc 1 dm₁, μ ^ 2 * Eb₂ e * (((trip lo w γ₁ h₀).filter fun x => e ≤ D x).card : ℚ)
+        + (((trip lo w γ₁ h₀).filter fun x => dm₁ + 1 ≤ D x).card : ℚ))
+      + (∑ e ∈ Icc 1 dm₂, μ ^ 2 * Eb₁ e ^ 2
+          * (((trip lo w γ₁ h₀).filter fun x => e ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ)
+        + (((trip lo w γ₁ h₀).filter fun x => dm₂ + 1 ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ)) := by
+    simp only [Hf, H₂, H₁, Finset.sum_add_distrib]
+    congr 1
+    · rw [Finset.sum_comm]
+      congr 1
+      · refine Finset.sum_congr rfl fun e _ => ?_
+        rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul, mul_comm]
+      · rw [Finset.sum_boole]
+    · have : ∀ x, (if NX ζ h₀ x then (0 : ℚ) else
+          ∑ e ∈ Icc 1 dm₂, (if e ≤ D x then μ ^ 2 * Eb₁ e ^ 2 else 0)
+            + (if dm₂ + 1 ≤ D x then 1 else 0))
+          = ∑ e ∈ Icc 1 dm₂, (if e ≤ D x ∧ ¬ NX ζ h₀ x then μ ^ 2 * Eb₁ e ^ 2 else 0)
+            + (if dm₂ + 1 ≤ D x ∧ ¬ NX ζ h₀ x then 1 else 0) := by
+        intro x
+        by_cases hn : NX ζ h₀ x
+        · simp [hn]
+        · simp only [hn, if_false, not_false_eq_true, and_true]
+      simp_rw [this, Finset.sum_add_distrib]
+      rw [Finset.sum_comm]
+      congr 1
+      · refine Finset.sum_congr rfl fun e _ => ?_
+        rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul, mul_comm]
+      · rw [Finset.sum_boole]
+  unfold avg
+  simp_rw [step1]
+  calc (∑ a, (∑ x ∈ trip lo w γ₁ h₀, X a x) / (trip lo w γ₁ h₀).card)
+        / Fintype.card (Fin K → Fin L → Fin n → ZMod q)
+      = (∑ x ∈ trip lo w γ₁ h₀, (∑ a, X a x) / Fintype.card (Fin K → Fin L → Fin n → ZMod q))
+        / (trip lo w γ₁ h₀).card := by
+        rw [← Finset.sum_div, ← Finset.sum_div, Finset.sum_comm]; ring
+    _ ≤ (∑ x ∈ trip lo w γ₁ h₀, Hf x) / (trip lo w γ₁ h₀).card :=
+        div_le_div_of_nonneg_right (Finset.sum_le_sum fun x _ => hcov x) htripc.le
+    _ = (∑ e ∈ Icc 1 dm₁, μ ^ 2 * Eb₂ e * ((((trip lo w γ₁ h₀).filter fun x => e ≤ D x).card
+          : ℚ) / (trip lo w γ₁ h₀).card)
+        + (((trip lo w γ₁ h₀).filter fun x => dm₁ + 1 ≤ D x).card : ℚ) / (trip lo w γ₁ h₀).card)
+        + (∑ e ∈ Icc 1 dm₂, μ ^ 2 * Eb₁ e ^ 2
+          * ((((trip lo w γ₁ h₀).filter fun x => e ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ)
+            / (trip lo w γ₁ h₀).card)
+        + (((trip lo w γ₁ h₀).filter fun x => dm₂ + 1 ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ)
+          / (trip lo w γ₁ h₀).card) := by
+        rw [hsplit, add_div, add_div, add_div, Finset.sum_div, Finset.sum_div]
+        congr 2 <;> refine Finset.sum_congr rfl fun e _ => ?_ <;> ring
+    _ ≤ _ := by
+        rw [mul_add, mul_add]
+        refine add_le_add (add_le_add ?_ (hprobs (dm₁ + 1) le_rfl))
+          (add_le_add ?_ (hprobs' (dm₂ + 1) (by omega) le_rfl))
+        · rw [Finset.mul_sum, Finset.mul_sum]
+          refine Finset.sum_le_sum fun e he => ?_
+          have := hprobs e (by have := (Finset.mem_Icc.mp he).2; omega)
+          calc μ ^ 2 * Eb₂ e * ((((trip lo w γ₁ h₀).filter fun x => e ≤ D x).card : ℚ)
+                / (trip lo w γ₁ h₀).card)
+              ≤ μ ^ 2 * Eb₂ e * (cm * (n.choose e * pm ^ e)) :=
+                mul_le_mul_of_nonneg_left this (mul_nonneg (sq_nonneg _) (hEb₂0 e))
+            _ = _ := by ring
+        · rw [Finset.mul_sum, Finset.mul_sum]
+          refine Finset.sum_le_sum fun e he => ?_
+          have := hprobs' e (Finset.mem_Icc.mp he).1 (by have := (Finset.mem_Icc.mp he).2; omega)
+          calc μ ^ 2 * Eb₁ e ^ 2 * ((((trip lo w γ₁ h₀).filter fun x =>
+                e ≤ D x ∧ ¬ NX ζ h₀ x).card : ℚ) / (trip lo w γ₁ h₀).card)
+              ≤ μ ^ 2 * Eb₁ e ^ 2 * (ce * (n.choose e * (pe ^ e - pm ^ e))) :=
+                mul_le_mul_of_nonneg_left this (by positivity)
+            _ = _ := by ring
+
 /-- Exceptional degenerate slots exist exactly when `NX` fails. -/
 lemma not_NX_exc {ζ : Fin n → ZMod q} (h₀ : Fin L)
     (x : ((Fin n → ℤ) × (Fin n → ℤ)) × (Fin L → Fin n → ℤ)) (hx : ¬ NX ζ h₀ x) :
@@ -3916,6 +4819,421 @@ end AltR0
 end
 
 end AltR0SharpPart
+
+section AltR0GenPart
+
+open Finset Matrix
+
+noncomputable section
+
+namespace AltR0
+open RejOrder
+
+variable {q : ℕ} [NeZero q] [Fact q.Prime] {n K L : ℕ}
+
+/-- Main part of the kernel-checked sum (`b²`-weighted counts). -/
+def numM (e q n K Bd Dc pn pd dm₁ M : ℕ) : ℕ :=
+  sumF (fun d => if 1 ≤ d then chooseC n d * pn ^ d * pd ^ (M - d)
+      * ENr e q n K (Bd ^ 2) (Dc ^ 2) d else 0) (dm₁ + 1)
+    + chooseC n (dm₁ + 1) * pn ^ (dm₁ + 1) * pd ^ (M - (dm₁ + 1)) * q ^ (2 * (K * n))
+
+/-- Exceptional part of the kernel-checked sum (crude counts). -/
+def numE (e q n K Bd Dc pn pn' pd dm₂ M : ℕ) : ℕ :=
+  sumF (fun d => if 1 ≤ d then chooseC n d * (pn' ^ d - pn ^ d) * pd ^ (M - d)
+      * ENr e q n K Bd Dc d ^ 2 else 0) (dm₂ + 1)
+    + chooseC n (dm₂ + 1) * (pn' ^ (dm₂ + 1) - pn ^ (dm₂ + 1)) * pd ^ (M - (dm₂ + 1))
+      * q ^ (2 * (K * n))
+
+variable {ζ : Fin n → ZMod q}
+
+open Classical in
+/-- **Relative second moment, general slot probabilities.** With `p_m = pn/pd`, `p_e = pn'/pd`,
+constants `c_m = cn/wn` and `c_e = c_m²`, the integer inequality
+`2^k (cn·wn·numM + cn²·numE) ≤ Dc^(2Kn) pd^M wn²` gives `E_A E_t (ρ − μ)² ≤ μ²/2^k`. -/
+theorem var_rel_gen
+    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
+    {cz : ZMod q} (hwz : ∀ k, ζ k ^ n = cz) (hn : 0 < n)
+    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ} (hv : Bounded β v)
+    {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) (hwq : w ≤ q) (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (h₀ : Fin L) (e dm₁ dm₂ M k : ℕ)
+    (hM₁ : dm₁ + 1 ≤ M) (hM₂ : dm₂ + 1 ≤ M)
+    (cn wn pn pn' pd : ℕ) (hwn : 0 < wn) (hpd : 0 < pd) (hpp : pn ≤ pn')
+    (hPm : ∀ e', e' ≤ dm₁ + 1 → prob (trip lo w γ₁ h₀) (fun x =>
+        e' ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card)
+      ≤ (cn : ℚ) / wn * (n.choose e' * ((pn : ℚ) / pd) ^ e'))
+    (hPexc : ∀ e', 1 ≤ e' → e' ≤ dm₂ + 1 → prob (trip lo w γ₁ h₀) (fun x =>
+        e' ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card ∧ ¬ NX ζ h₀ x)
+      ≤ ((cn : ℚ) / wn) ^ 2 * (n.choose e' * (((pn' : ℚ) / pd) ^ e' - ((pn : ℚ) / pd) ^ e')))
+    (hnum : 2 ^ k * (cn * wn * numM e q n K (q - mb * (2 * (γ₂ - β) - 1))
+          (mb * (2 * (γ₂ - β) - 1)) pn pd dm₁ M
+        + cn ^ 2 * numE e q n K (q - mb * (2 * (γ₂ - β) - 1)) (mb * (2 * (γ₂ - β) - 1))
+          pn pn' pd dm₂ M)
+      ≤ (mb * (2 * (γ₂ - β) - 1)) ^ (2 * (K * n)) * pd ^ M * wn ^ 2) :
+    avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+        (∑ t ∈ tbox γ₁ h₀, (rhoC mulmat γ₂ β v lo w h₀ a t
+          - ∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q) ^ 2) / (tbox (n := n) γ₁ h₀).card)
+      ≤ (∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q) ^ 2 / 2 ^ k := by
+  set Dc := mb * (2 * (γ₂ - β) - 1) with hDc
+  set Bd := q - Dc with hBd
+  have hDcq : Dc ≤ q := pass_le_q hp
+  have hDc0 : 0 < Dc := by
+    have h1 := hp.mb_pos; have h2 := hp.β_lt_γ₂
+    exact Nat.mul_pos h1 (by omega)
+  have hq1 : 1 ≤ q := Nat.one_le_iff_ne_zero.mpr (NeZero.ne q)
+  have hDc' : (0 : ℚ) < Dc := by exact_mod_cast hDc0
+  have hq' : (0 : ℚ) < q := by exact_mod_cast hq1
+  set bt : ℚ := (Bd : ℚ) / Dc
+  have hgood : ∀ r, ((good (q := q) γ₂ β v r).card : ℚ) = Dc := fun r => by
+    rw [card_good hp hv r]
+  have hμ : ∏ r, ((good (q := q) γ₂ β v r).card : ℚ) / q = ((Dc : ℚ) / q) ^ (K * n) := by
+    simp_rw [hgood]; rw [Finset.prod_const, card_univ, Fintype.card_fin]
+  have hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card := by
+    intro r; rw [hgood]
+    simp only [bt, hBd]; rw [Nat.cast_sub hDcq]; field_simp; rfl
+  have hEb₁ : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm₂ →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0)
+        ≤ (ENr e q n K Bd Dc S.card : ℚ) / (Dc : ℚ) ^ (K * n) :=
+    fun S _ _ => (wsum_le h.inj h.ne0 hwz S (by positivity)).trans
+      (wcount_le_rows hn e q Bd Dc S.card hq1 hDc0)
+  have hbt2 : bt ^ 2 = ((Bd ^ 2 : ℕ) : ℚ) / ((Dc ^ 2 : ℕ) : ℚ) := by
+    simp only [bt]; push_cast; rw [div_pow]
+  have hEb₂ : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm₁ →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then (bt ^ 2) ^ (supp ξ).card else 0)
+        ≤ (ENr e q n K (Bd ^ 2) (Dc ^ 2) S.card : ℚ) / ((Dc ^ 2 : ℕ) : ℚ) ^ (K * n) := by
+    intro S _ _
+    rw [hbt2]
+    exact (wsum_le h.inj h.ne0 hwz S (by positivity)).trans
+      (wcount_le_rows hn e q (Bd ^ 2) (Dc ^ 2) S.card hq1 (by positivity))
+  refine (var_le_gen h hw0 hwq hγ1 hγ h₀ bt (by positivity) hbad dm₁ dm₂
+    (fun d => (ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n))
+    (fun d => (ENr e q n K (Bd ^ 2) (Dc ^ 2) d : ℚ) / ((Dc ^ 2 : ℕ) : ℚ) ^ (K * n))
+    (fun d => by positivity) hEb₁ hEb₂ _ _ _ _ hPm hPexc).trans ?_
+  rw [hμ]
+  have hpd' : (0 : ℚ) < pd := by exact_mod_cast hpd
+  have hQ : (0 : ℚ) < (q : ℚ) ^ (2 * (K * n)) := by positivity
+  have hDn : (0 : ℚ) < (Dc : ℚ) ^ (K * n) := by positivity
+  set Q : ℚ := (q : ℚ) ^ (2 * (K * n))
+  have hμ2 : (((Dc : ℚ) / q) ^ (K * n)) ^ 2 = (Dc : ℚ) ^ (2 * (K * n)) / Q := by
+    rw [div_pow, div_pow, ← pow_mul, ← pow_mul, mul_comm (K * n) 2]
+  have hsplit : ∀ d, d ≤ M → (pd : ℚ) ^ M = (pd : ℚ) ^ d * (pd : ℚ) ^ (M - d) := fun d hd => by
+    rw [← pow_add]; congr 1; omega
+  have hle : ∀ d, pn ^ d ≤ pn' ^ d := fun d => Nat.pow_le_pow_left hpp d
+  -- the four parts of `numL2`, as rationals over `Q · pd^M`
+  set A₁ : ℚ := ∑ d ∈ Icc 1 dm₁, (n.choose d : ℚ) * (pn : ℚ) ^ d * (pd : ℚ) ^ (M - d)
+    * (ENr e q n K (Bd ^ 2) (Dc ^ 2) d : ℚ)
+  set A₂ : ℚ := (n.choose (dm₁ + 1) : ℚ) * (pn : ℚ) ^ (dm₁ + 1) * (pd : ℚ) ^ (M - (dm₁ + 1)) * Q
+  set A₃ : ℚ := ∑ d ∈ Icc 1 dm₂, (n.choose d : ℚ) * (((pn' : ℚ) ^ d - (pn : ℚ) ^ d))
+    * (pd : ℚ) ^ (M - d) * (ENr e q n K Bd Dc d : ℚ) ^ 2
+  set A₄ : ℚ := (n.choose (dm₂ + 1) : ℚ) * ((pn' : ℚ) ^ (dm₂ + 1) - (pn : ℚ) ^ (dm₂ + 1))
+    * (pd : ℚ) ^ (M - (dm₂ + 1)) * Q
+  have hnumQ : (2 : ℚ) ^ k * ((cn : ℚ) * wn * (A₁ + A₂) + (cn : ℚ) ^ 2 * (A₃ + A₄))
+      ≤ (Dc : ℚ) ^ (2 * (K * n)) * (pd : ℚ) ^ M * (wn : ℚ) ^ 2 := by
+    have := (Nat.cast_le (α := ℚ)).mpr hnum
+    unfold numM numE at this
+    rw [sumF_eq, sumF_eq] at this
+    push_cast at this
+    simp only [Nat.cast_ite, Nat.cast_zero, Nat.cast_mul, Nat.cast_pow, chooseC_eq,
+      Nat.cast_sub (hle _)] at this
+    rw [sumF_ite_Icc, sumF_ite_Icc] at this
+    convert this using 3
+  have e1 : (Dc : ℚ) ^ (2 * (K * n)) / Q * ∑ d ∈ Icc 1 dm₁,
+      ((n.choose d : ℚ) * ((pn : ℚ) / pd) ^ d) *
+        ((ENr e q n K (Bd ^ 2) (Dc ^ 2) d : ℚ) / ((Dc ^ 2 : ℕ) : ℚ) ^ (K * n))
+      = A₁ / (Q * (pd : ℚ) ^ M) := by
+    simp only [A₁]
+    rw [Finset.mul_sum, Finset.sum_div]
+    refine Finset.sum_congr rfl fun d hd => ?_
+    rw [hsplit d (by have := (Finset.mem_Icc.mp hd).2; omega)]
+    push_cast
+    rw [← pow_mul, show 2 * (K * n) = (K * n) * 2 by ring, pow_mul]
+    simp only [div_pow]
+    field_simp
+  have e3 : (Dc : ℚ) ^ (2 * (K * n)) / Q * ∑ d ∈ Icc 1 dm₂,
+      ((n.choose d : ℚ) * (((pn' : ℚ) / pd) ^ d - ((pn : ℚ) / pd) ^ d)) *
+        ((ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) ^ 2
+      = A₃ / (Q * (pd : ℚ) ^ M) := by
+    simp only [A₃]
+    rw [Finset.mul_sum, Finset.sum_div]
+    refine Finset.sum_congr rfl fun d hd => ?_
+    rw [hsplit d (by have := (Finset.mem_Icc.mp hd).2; omega)]
+    rw [show 2 * (K * n) = (K * n) * 2 by ring, pow_mul]
+    simp only [div_pow]
+    field_simp
+  have e2 : (n.choose (dm₁ + 1) : ℚ) * ((pn : ℚ) / pd) ^ (dm₁ + 1) = A₂ / (Q * (pd : ℚ) ^ M) := by
+    rw [hsplit (dm₁ + 1) hM₁, div_pow]; field_simp; simp only [A₂]; ring
+  have e4 : (n.choose (dm₂ + 1) : ℚ) * (((pn' : ℚ) / pd) ^ (dm₂ + 1) - ((pn : ℚ) / pd) ^ (dm₂ + 1))
+      = A₄ / (Q * (pd : ℚ) ^ M) := by
+    rw [hsplit (dm₂ + 1) hM₂, div_pow, div_pow]; field_simp; simp only [A₄]; ring
+  have hwn' : (0 : ℚ) < wn := by exact_mod_cast hwn
+  rw [hμ2, e1, e2, e3, e4]
+  rw [show (cn : ℚ) / wn * (A₁ / (Q * (pd : ℚ) ^ M) + A₂ / (Q * (pd : ℚ) ^ M))
+      + ((cn : ℚ) / wn) ^ 2 * (A₃ / (Q * (pd : ℚ) ^ M) + A₄ / (Q * (pd : ℚ) ^ M))
+      = ((cn : ℚ) * wn * (A₁ + A₂) + (cn : ℚ) ^ 2 * (A₃ + A₄)) / ((wn : ℚ) ^ 2 * (Q * (pd : ℚ) ^ M))
+      by field_simp]
+  rw [div_le_div_iff₀ (by positivity) (by positivity)]
+  rw [show (Dc : ℚ) ^ (2 * (K * n)) / Q * ((wn : ℚ) ^ 2 * (Q * (pd : ℚ) ^ M))
+      = (Dc : ℚ) ^ (2 * (K * n)) * (pd : ℚ) ^ M * (wn : ℚ) ^ 2 by field_simp]
+  linarith [hnumQ]
+
+section MLDSAQ
+
+set_option maxRecDepth 100000
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_44_full : 2 ^ 382 * (((2 * 2 ^ 17) + 2 * (256 * 5)) ^ 256 * (2 * 2 ^ 17) ^ 256 *
+      numM 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1)) (44 * (2 * (95232 - 78) - 1))
+        ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) 27 28
+    + (((2 * 2 ^ 17) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1)) (44 * (2 * (95232 - 78) - 1))
+        ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) ((2 * 2 ^ 17) ^ (4 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) 19 28)
+  ≤ (44 * (2 * (95232 - 78) - 1)) ^ (2 * (4 * 256)) * (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) ^ 28 * ((2 * 2 ^ 17) ^ 256) ^ 2 := by
+  decide +kernel
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_44_z : 2 ^ 382 * (((2 * (2 ^ 17 - 78) - 1) + 2 * (256 * 5)) ^ 256 * (2 * (2 ^ 17 - 78) - 1) ^ 256 *
+      numM 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1)) (44 * (2 * (95232 - 78) - 1))
+        ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) 27 28
+    + (((2 * (2 ^ 17 - 78) - 1) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1)) (44 * (2 * (95232 - 78) - 1))
+        ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) ((2 * 2 ^ 17) ^ (4 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) 19 28)
+  ≤ (44 * (2 * (95232 - 78) - 1)) ^ (2 * (4 * 256)) * (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) ^ 28 * ((2 * (2 ^ 17 - 78) - 1) ^ 256) ^ 2 := by
+  decide +kernel
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_65_full : 2 ^ 420 * (((2 * 2 ^ 19) + 2 * (256 * 5)) ^ 256 * (2 * 2 ^ 19) ^ 256 *
+      numM 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1)) (16 * (2 * (261888 - 196) - 1))
+        ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) 27 28
+    + (((2 * 2 ^ 19) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1)) (16 * (2 * (261888 - 196) - 1))
+        ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) ((2 * 2 ^ 19) ^ (5 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) 19 28)
+  ≤ (16 * (2 * (261888 - 196) - 1)) ^ (2 * (6 * 256)) * (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) ^ 28 * ((2 * 2 ^ 19) ^ 256) ^ 2 := by
+  decide +kernel
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_65_z : 2 ^ 420 * (((2 * (2 ^ 19 - 196) - 1) + 2 * (256 * 5)) ^ 256 * (2 * (2 ^ 19 - 196) - 1) ^ 256 *
+      numM 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1)) (16 * (2 * (261888 - 196) - 1))
+        ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) 27 28
+    + (((2 * (2 ^ 19 - 196) - 1) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1)) (16 * (2 * (261888 - 196) - 1))
+        ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) ((2 * 2 ^ 19) ^ (5 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) 19 28)
+  ≤ (16 * (2 * (261888 - 196) - 1)) ^ (2 * (6 * 256)) * (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) ^ 28 * ((2 * (2 ^ 19 - 196) - 1) ^ 256) ^ 2 := by
+  decide +kernel
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_87_full : 2 ^ 472 * (((2 * 2 ^ 19) + 2 * (256 * 5)) ^ 256 * (2 * 2 ^ 19) ^ 256 *
+      numM 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1)) (16 * (2 * (261888 - 120) - 1))
+        ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) 27 28
+    + (((2 * 2 ^ 19) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1)) (16 * (2 * (261888 - 120) - 1))
+        ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) ((2 * 2 ^ 19) ^ (7 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) 19 28)
+  ≤ (16 * (2 * (261888 - 120) - 1)) ^ (2 * (8 * 256)) * (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) ^ 28 * ((2 * 2 ^ 19) ^ 256) ^ 2 := by
+  decide +kernel
+
+/-- Kernel-checked inequality for the `1/q` slot bound. -/
+theorem numQ_87_z : 2 ^ 472 * (((2 * (2 ^ 19 - 120) - 1) + 2 * (256 * 5)) ^ 256 * (2 * (2 ^ 19 - 120) - 1) ^ 256 *
+      numM 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1)) (16 * (2 * (261888 - 120) - 1))
+        ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) 27 28
+    + (((2 * (2 ^ 19 - 120) - 1) + 2 * (256 * 5)) ^ 256) ^ 2 *
+      numE 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1)) (16 * (2 * (261888 - 120) - 1))
+        ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) ((2 * 2 ^ 19) ^ (7 - 1) + 8380417 + 2) (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) 19 28)
+  ≤ (16 * (2 * (261888 - 120) - 1)) ^ (2 * (8 * 256)) * (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) ^ 28 * ((2 * (2 ^ 19 - 120) - 1) ^ 256) ^ 2 := by
+  decide +kernel
+
+set_option maxHeartbeats 2000000 in
+open Classical in
+/-- **ML-DSA-44, second moment with the `1/q` slot bound.** -/
+theorem var_mldsa44_q {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
+    avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 17) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 382 := by
+  have hq : ∀ e' : ℕ, e' ≤ 28 → 8380417 ^ e' < (5 + 1) ^ 256 := fun e' he' =>
+    lt_of_le_of_lt (Nat.pow_le_pow_right (by norm_num) he') (by norm_num)
+  have hp : ((((2 * 2 ^ 17) ^ (4 - 1) + 8380417 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 17) ^ (4 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 17 : ℕ) : ℚ))) ^ (4 - 1) := by
+    push_cast; field_simp; norm_num
+  have hpe : ((((2 * 2 ^ 17) ^ (4 - 1) + 8380417 + 2 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 17) ^ (4 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 17 : ℕ) : ℚ))) ^ (4 - 1)
+        + 2 / (((8380417 : ℕ) : ℚ) * ((2 * ((2 ^ 17 : ℕ) : ℚ))) ^ (4 - 1)) := by
+    push_cast; field_simp; norm_num
+  rcases hw with rfl | rfl
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 382 (by norm_num) (by norm_num)
+      ((2 * 2 ^ 17 + 2 * (256 * 5)) ^ 256) ((2 * 2 ^ 17) ^ 256) ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) ((2 * 2 ^ 17) ^ (4 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_44_full
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 382 (by norm_num) (by norm_num)
+      ((2 * (2 ^ 17 - 78) - 1 + 2 * (256 * 5)) ^ 256) ((2 * (2 ^ 17 - 78) - 1) ^ 256)
+      ((2 * 2 ^ 17) ^ (4 - 1) + 8380417) ((2 * 2 ^ 17) ^ (4 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_44_z
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17)
+        (w := 2 * (2 ^ 17 - 78) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17)
+        (w := 2 * (2 ^ 17 - 78) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
+        (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+
+
+set_option maxHeartbeats 2000000 in
+open Classical in
+/-- **ML-DSA-65, second moment with the `1/q` slot bound.** -/
+theorem var_mldsa65_q {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
+    avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 420 := by
+  have hq : ∀ e' : ℕ, e' ≤ 28 → 8380417 ^ e' < (5 + 1) ^ 256 := fun e' he' =>
+    lt_of_le_of_lt (Nat.pow_le_pow_right (by norm_num) he') (by norm_num)
+  have hp : ((((2 * 2 ^ 19) ^ (5 - 1) + 8380417 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 19) ^ (5 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (5 - 1) := by
+    push_cast; field_simp; norm_num
+  have hpe : ((((2 * 2 ^ 19) ^ (5 - 1) + 8380417 + 2 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 19) ^ (5 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (5 - 1)
+        + 2 / (((8380417 : ℕ) : ℚ) * ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (5 - 1)) := by
+    push_cast; field_simp; norm_num
+  rcases hw with rfl | rfl
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 420 (by norm_num) (by norm_num)
+      ((2 * 2 ^ 19 + 2 * (256 * 5)) ^ 256) ((2 * 2 ^ 19) ^ 256) ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) ((2 * 2 ^ 19) ^ (5 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_65_full
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 420 (by norm_num) (by norm_num)
+      ((2 * (2 ^ 19 - 196) - 1 + 2 * (256 * 5)) ^ 256) ((2 * (2 ^ 19 - 196) - 1) ^ 256)
+      ((2 * 2 ^ 19) ^ (5 - 1) + 8380417) ((2 * 2 ^ 19) ^ (5 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_65_z
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+        (w := 2 * (2 ^ 19 - 196) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+        (w := 2 * (2 ^ 19 - 196) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
+        (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+
+
+set_option maxHeartbeats 2000000 in
+open Classical in
+/-- **ML-DSA-87, second moment with the `1/q` slot bound.** -/
+theorem var_mldsa87_q {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
+    avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 472 := by
+  have hq : ∀ e' : ℕ, e' ≤ 28 → 8380417 ^ e' < (5 + 1) ^ 256 := fun e' he' =>
+    lt_of_le_of_lt (Nat.pow_le_pow_right (by norm_num) he') (by norm_num)
+  have hp : ((((2 * 2 ^ 19) ^ (7 - 1) + 8380417 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 19) ^ (7 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (7 - 1) := by
+    push_cast; field_simp; norm_num
+  have hpe : ((((2 * 2 ^ 19) ^ (7 - 1) + 8380417 + 2 : ℕ)) : ℚ) / (((8380417 * (2 * 2 ^ 19) ^ (7 - 1) : ℕ)) : ℚ)
+      = 1 / ((8380417 : ℕ) : ℚ) + 1 / ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (7 - 1)
+        + 2 / (((8380417 : ℕ) : ℚ) * ((2 * ((2 ^ 19 : ℕ) : ℚ))) ^ (7 - 1)) := by
+    push_cast; field_simp; norm_num
+  rcases hw with rfl | rfl
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 472 (by norm_num) (by norm_num)
+      ((2 * 2 ^ 19 + 2 * (256 * 5)) ^ 256) ((2 * 2 ^ 19) ^ 256) ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) ((2 * 2 ^ 19) ^ (7 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_87_full
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+        (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+  · refine var_rel_gen isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hv (by norm_num)
+      (by norm_num) (by norm_num) (by norm_num) h₀ 330 27 19 28 472 (by norm_num) (by norm_num)
+      ((2 * (2 ^ 19 - 120) - 1 + 2 * (256 * 5)) ^ 256) ((2 * (2 ^ 19 - 120) - 1) ^ 256)
+      ((2 * 2 ^ 19) ^ (7 - 1) + 8380417) ((2 * 2 ^ 19) ^ (7 - 1) + 8380417 + 2)
+      (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
+      (Nat.le_add_right _ _) ?_ ?_ numQ_87_z
+    · intro e' he'
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+        (w := 2 * (2 ^ 19 - 120) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
+      rw [hp]; convert this using 2; push_cast; norm_num
+    · intro e' he1 he'
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+        (w := 2 * (2 ^ 19 - 120) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
+        (hq e' (by omega))
+      have h2 := (prob_mono (trip lo _ _ h₀)
+        (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ ¬ NX zetaMLDSA h₀ x)
+        (Q := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
+          ∧ (exc zetaMLDSA h₀ x.1.1 x.1.2 x.2).Nonempty)
+        fun x _ hx => ⟨hx.1, not_NX_exc h₀ x hx.2⟩).trans this
+      rw [hp, hpe]; convert h2 using 2; push_cast; norm_num
+
+
+end MLDSAQ
+
+end AltR0
+
+end
+
+end AltR0GenPart
 
 section AltR0FinalPart
 
@@ -4851,10 +6169,10 @@ theorem altR0_mldsa44_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4
 lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) → ℤ)
     (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
     avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
-      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ (2 * 147)) := by
+      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa44_sharp (hv c) (lo := fun _ => -(((2 ^ 17) : ℕ) : ℤ) + 1)
+  have := AltR0.var_mldsa44_q (hv c) (lo := fun _ => -(((2 ^ 17) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 17)) (Or.inl rfl) h₀
   rw [mu_eq_44 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -4862,37 +6180,37 @@ lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) �
 lemma avg_Xz2_44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
     avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
-      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ (2 * 147)) := by
+      mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa44_sharp (hv c) (lo := zlo (2 ^ 17) 78 h₀ (u c)) (w := zw (2 ^ 17) 78)
+  have := AltR0.var_mldsa44_q (hv c) (lo := zlo (2 ^ 17) 78 h₀ (u c)) (w := zw (2 ^ 17) 78)
     (Or.inr rfl) h₀
   rw [mu_eq_44 (hv c)] at this
   rw [mul_one_div]; exact this
 
-/-- **ML-DSA-44, headline.** Take `ε = 2^-98`. For at least a `1 − 2^-97` fraction of
-matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
-`y_{h₀}` on an r₀ failure) has output law within `2^-96` of vanilla's in `ℓ¹`, and fails to
-terminate with probability at most `2^-97`. -/
+/-- **ML-DSA-44, headline.** Take `ε = 2^-127`. For at least a `1 − 2^-127` fraction of
+matrices `A` (Markov on the second moment over `A`, which is `≤ μ²·2^-382` with the `1/q`
+slot bound), alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law
+within `2^-125` of vanilla's in `ℓ¹`, and fails to terminate with probability at most `2^-126`. -/
 theorem altR0_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
     (h₀ : Fin 4) :
     ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-        (1 / 2 ^ 98))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 97 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 98) a →
+        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 127 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
               (zok (2 ^ 17) 78 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
-              zok (2 ^ 17) 78 u y c) x| ≤ 1 / 2 ^ 96 ∧
+              zok (2 ^ 17) 78 u y c) x| ≤ 1 / 2 ^ 125 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
-              (zok (2 ^ 17) 78 u) x ≤ 1 / 2 ^ 97 := by
-  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 98) (by norm_num)
+              (zok (2 ^ 17) 78 u) x ≤ 1 / 2 ^ 126 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 127) (by norm_num)
     (avg_X2_44 v hv h₀) (avg_Xz2_44 u v hv h₀)
   refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_44
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 2 * (1 / 2 ^ 98) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 98) ≤ 27 / 50 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 2 * (1 / 2 ^ 127) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 127) ≤ 27 / 50 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩
@@ -4964,10 +6282,10 @@ theorem altR0_mldsa65_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5
 lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) → ℤ)
     (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
     avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
-      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ (2 * 182)) := by
+      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa65_sharp (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+  have := AltR0.var_mldsa65_q (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
   rw [mu_eq_65 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -4975,37 +6293,37 @@ lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) �
 lemma avg_Xz2_65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
     avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
-      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ (2 * 182)) := by
+      mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa65_sharp (hv c) (lo := zlo (2 ^ 19) 196 h₀ (u c)) (w := zw (2 ^ 19) 196)
+  have := AltR0.var_mldsa65_q (hv c) (lo := zlo (2 ^ 19) 196 h₀ (u c)) (w := zw (2 ^ 19) 196)
     (Or.inr rfl) h₀
   rw [mu_eq_65 (hv c)] at this
   rw [mul_one_div]; exact this
 
-/-- **ML-DSA-65, headline.** Take `ε = 2^-121`. For at least a `1 − 2^-121` fraction of
-matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
-`y_{h₀}` on an r₀ failure) has output law within `2^-119` of vanilla's in `ℓ¹`, and fails to
-terminate with probability at most `2^-120`. -/
+/-- **ML-DSA-65, headline.** Take `ε = 2^-140`. For at least a `1 − 2^-139` fraction of
+matrices `A` (Markov on the second moment over `A`, which is `≤ μ²·2^-420` with the `1/q`
+slot bound), alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law
+within `2^-138` of vanilla's in `ℓ¹`, and fails to terminate with probability at most `2^-139`. -/
 theorem altR0_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
     (h₀ : Fin 5) :
     ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-        (1 / 2 ^ 121))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 121 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 121) a →
+        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 139 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
               (zok (2 ^ 19) 196 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
-              zok (2 ^ 19) 196 u y c) x| ≤ 1 / 2 ^ 119 ∧
+              zok (2 ^ 19) 196 u y c) x| ≤ 1 / 2 ^ 138 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
-              (zok (2 ^ 19) 196 u) x ≤ 1 / 2 ^ 120 := by
-  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 121) (by norm_num)
+              (zok (2 ^ 19) 196 u) x ≤ 1 / 2 ^ 139 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 140) (by norm_num)
     (avg_X2_65 v hv h₀) (avg_Xz2_65 u v hv h₀)
   refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_65
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 2 * (1 / 2 ^ 121) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 121) ≤ 3 / 5 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 2 * (1 / 2 ^ 140) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 140) ≤ 3 / 5 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩
@@ -5077,10 +6395,10 @@ theorem altR0_mldsa87_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7
 lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) → ℤ)
     (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
     avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
-      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ (2 * 190)) := by
+      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa87_sharp (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+  have := AltR0.var_mldsa87_q (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
   rw [mu_eq_87 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -5088,37 +6406,37 @@ lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) �
 lemma avg_Xz2_87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
     avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
-      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ (2 * 190)) := by
+      mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa87_sharp (hv c) (lo := zlo (2 ^ 19) 120 h₀ (u c)) (w := zw (2 ^ 19) 120)
+  have := AltR0.var_mldsa87_q (hv c) (lo := zlo (2 ^ 19) 120 h₀ (u c)) (w := zw (2 ^ 19) 120)
     (Or.inr rfl) h₀
   rw [mu_eq_87 (hv c)] at this
   rw [mul_one_div]; exact this
 
-/-- **ML-DSA-87, headline.** Take `ε = 2^-126`. For at least a `1 − 2^-127` fraction of
-matrices `A` (Markov on the second moment over `A`), alt-r0 (r₀ check first, resample only
-`y_{h₀}` on an r₀ failure) has output law within `2^-124` of vanilla's in `ℓ¹`, and fails to
-terminate with probability at most `2^-125`. -/
+/-- **ML-DSA-87, headline.** Take `ε = 2^-157`. For at least a `1 − 2^-157` fraction of
+matrices `A` (Markov on the second moment over `A`, which is `≤ μ²·2^-472` with the `1/q`
+slot bound), alt-r0 (r₀ check first, resample only `y_{h₀}` on an r₀ failure) has output law
+within `2^-155` of vanilla's in `ℓ¹`, and fails to terminate with probability at most `2^-156`. -/
 theorem altR0_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
     (h₀ : Fin 7) :
     ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-        (1 / 2 ^ 126))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
-        ≤ 1 / 2 ^ 127 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 126) a →
+        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+        ≤ 1 / 2 ^ 157 ∧
+      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) a →
         ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
               (zok (2 ^ 19) 120 u) x -
             Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
-              zok (2 ^ 19) 120 u y c) x| ≤ 1 / 2 ^ 124 ∧
+              zok (2 ^ 19) 120 u y c) x| ≤ 1 / 2 ^ 155 ∧
         1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
-              (zok (2 ^ 19) 120 u) x ≤ 1 / 2 ^ 125 := by
-  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 126) (by norm_num)
+              (zok (2 ^ 19) 120 u) x ≤ 1 / 2 ^ 156 := by
+  obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 157) (by norm_num)
     (avg_X2_87 v hv h₀) (avg_Xz2_87 u v hv h₀)
   refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
   have hpz := pz_ge_87
-  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 2 * (1 / 2 ^ 126) := by
-    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 126) ≤ 3 / 5 := by norm_num
+  have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 2 * (1 / 2 ^ 157) := by
+    have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 157) ≤ 3 / 5 := by norm_num
     linarith
   obtain ⟨d1, d2⟩ := h2 a ha (by linarith)
   refine ⟨d1.trans ?_, d2.trans ?_⟩
@@ -5507,3 +6825,614 @@ end MinEntropy
 end
 
 end MinEntropyPart
+
+section RejOrderFourierPart
+
+/-!
+# The RejOrder leak via the product-Fourier bound
+
+`RejOrder.leak` (the per-attempt leak of circl's check order) bounded on average over `A` without
+Bonferroni truncation. Every view of an attempt is a difference of prefix-pass product sets
+`P_i = ∏_{r<i} good_r × ∏_{r≥i} univ` (`leak_le_Dev`), so `cov_le` applies to each; pairs of
+nonces are independent, so a degenerate slot has probability `(q+1)/(2γ₁)^L` (`deg_card_prob`), and
+the weighted counts are bounded by rows (`wcount_le_rows`). Result (`leak_mldsa44_fourier` etc.):
+`E_A leak ≤ 2^-405, 2^-547, 2^-729` for ML-DSA-44/65/87, against `2^-289, 2^-418, 2^-568` for
+`RejOrder.leak_mldsa44` etc.
+-/
+
+open Finset Matrix
+
+noncomputable section
+
+namespace RejFourier
+open RejOrder AltR0
+
+variable {q : ℕ} [NeZero q] [Fact q.Prime] {n K L : ℕ}
+
+/-- Coordinates before `i` must pass the r₀ check, the others are free. -/
+def gset (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) (r : Fin (K * n)) : Finset (ZMod q) :=
+  if (r : ℕ) < i then good γ₂ β v r else univ
+
+/-- The prefix-pass set: the first `i` coordinates of `w` pass the r₀ check. -/
+def Pset (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : Finset (Fin (K * n) → ZMod q) :=
+  Fintype.piFinset (gset (q := q) γ₂ β v i)
+
+/-- Density of the prefix-pass set. -/
+def muP (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : ℚ :=
+  ∏ r, ((gset (q := q) γ₂ β v i r).card : ℚ) / q
+
+/-- Deviation of `Pr[y ∈ B' ∧ A·y ∈ P_i]` from `Pr[B'] · |P_i|/q^m`, `y` uniform on the box. -/
+def Dev (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β : ℕ)
+    (v : Fin (K * n) → ℤ) (i : ℕ) (B' : Finset (Fin (L * n) → ℤ))
+    (a : Fin K → Fin L → Fin n → ZMod q) : ℚ :=
+  |((B'.filter fun y => modMat mulmat a *ᵥ zc y ∈ Pset (q := q) γ₂ β v i).card : ℚ)
+      / (box γ₁ (L * n)).card
+    - (B'.card : ℚ) / (box γ₁ (L * n)).card * muP (q := q) γ₂ β v i|
+
+lemma muP_nonneg (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : 0 ≤ muP (q := q) γ₂ β v i :=
+  Finset.prod_nonneg fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _)
+
+lemma muP_le_one (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : muP (q := q) γ₂ β v i ≤ 1 := by
+  refine Finset.prod_le_one₀ (fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _))
+    fun r _ => ?_
+  have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+  rw [div_le_one hq]
+  exact_mod_cast (Finset.card_le_univ _).trans (by rw [ZMod.card])
+
+/-- **Second moment of `Dev`.** For any sub-event `B'` of the box and any `i`,
+`E_A Dev² ≤ ∑_{d ≤ d_m} C(n,d) ρ^d E_b(d)² + C(n, d_m+1) ρ^(d_m+1)`,
+`ρ = (q+1)/(2γ₁)^L` the probability of a degenerate slot for independent `y, y'`. -/
+theorem Dsq_le {ζ : Fin n → ZMod q}
+    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
+    {γ₁ γ₂ β : ℕ} {v : Fin (K * n) → ℤ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
+    (B' : Finset (Fin (L * n) → ℤ)) (hB' : B' ⊆ box γ₁ (L * n)) (i : ℕ)
+    (bt : ℚ) (hbt : 0 ≤ bt)
+    (hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card)
+    (dm : ℕ) (Eb : ℕ → ℚ)
+    (hEb : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0) ≤ Eb S.card) :
+    avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2)
+      ≤ ∑ d ∈ Icc 1 dm, (n.choose d * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ d) * Eb d ^ 2
+        + n.choose (dm + 1) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ (dm + 1) := by
+  set μ := muP (q := q) γ₂ β v i with hμdef
+  have hμ0 : 0 ≤ μ := muP_nonneg γ₂ β v i
+  have hμ1 : μ ≤ 1 := muP_le_one γ₂ β v i
+  set Bx := box γ₁ (L * n)
+  have hBx : (0 : ℚ) < Bx.card := by
+    rw [card_box_nat]; have : 0 < 2 * γ₁ := by omega
+    positivity
+  have hgset : ∀ r, ((q : ℚ) - (gset (q := q) γ₂ β v i r).card)
+      ≤ bt * (gset (q := q) γ₂ β v i r).card := by
+    intro r; unfold gset
+    split_ifs
+    · exact hbad r
+    · rw [card_univ, ZMod.card, sub_self]; positivity
+  have hgne : ∀ r, (gset (q := q) γ₂ β v i r).Nonempty := by
+    intro r
+    by_contra hne
+    rw [Finset.not_nonempty_iff_eq_empty] at hne
+    have := hgset r
+    rw [hne, Finset.card_empty, Nat.cast_zero, mul_zero, sub_zero] at this
+    have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
+    linarith
+  -- the centred indicator
+  set X : (Fin K → Fin L → Fin n → ZMod q) → (Fin (L * n) → ℤ) → ℚ := fun a y =>
+    (if phiHom h (zc y) a ∈ Fintype.piFinset (gset (q := q) γ₂ β v i) then (1 : ℚ) else 0) - μ
+    with hX
+  have hDev : ∀ a, Dev mulmat γ₁ γ₂ β v i B' a ^ 2
+      = (∑ y ∈ B', ∑ y' ∈ B', X a y * X a y') / (Bx.card : ℚ) ^ 2 := by
+    intro a
+    have e : ((B'.filter fun y => modMat mulmat a *ᵥ zc y ∈ Pset (q := q) γ₂ β v i).card : ℚ)
+        / Bx.card - (B'.card : ℚ) / Bx.card * μ = (∑ y ∈ B', X a y) / Bx.card := by
+      simp only [hX]
+      rw [Finset.sum_sub_distrib, Finset.sum_boole, Finset.sum_const, nsmul_eq_mul]
+      rw [sub_div]
+      congr 1
+      ring
+    unfold Dev
+    rw [← hμdef, e, sq_abs, div_pow, sq, Finset.sum_mul_sum]
+  -- per-pair bound
+  set D : (Fin (L * n) → ℤ) × (Fin (L * n) → ℤ) → ℕ := fun yy => (degS ζ yy.1 yy.2).card
+  set Hf : ℕ → ℚ := fun d => ∑ e ∈ Icc 1 dm, (if e ≤ d then Eb e ^ 2 else 0)
+    + (if dm + 1 ≤ d then 1 else 0)
+  have hHf0 : ∀ d, 0 ≤ ∑ e ∈ Icc 1 dm, (if e ≤ d then Eb e ^ 2 else 0) :=
+    fun d => Finset.sum_nonneg fun e _ => by split_ifs <;> positivity
+  have hP : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
+    exact_mod_cast Fintype.card_pos
+  have hX1 : ∀ a y y', X a y * X a y' ≤ 1 := by
+    intro a y y'
+    simp only [hX]
+    have hb : ∀ P : Prop, [Decidable P] → |(if P then (1 : ℚ) else 0) - μ| ≤ 1 := by
+      intro P _; split_ifs <;> rw [abs_le] <;> constructor <;> linarith
+    calc _ ≤ |_ * _| := le_abs_self _
+      _ = _ := abs_mul _ _
+      _ ≤ 1 * 1 := mul_le_mul (hb _) (hb _) (abs_nonneg _) zero_le_one
+      _ = 1 := one_mul 1
+  have hcov : ∀ yy : (Fin (L * n) → ℤ) × (Fin (L * n) → ℤ),
+      |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
+        ≤ Hf (D yy) := by
+    intro yy
+    set Ew : ℚ := ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+      (if DualIn ζ (degS ζ yy.1 yy.2) ξ then bt ^ (supp ξ).card else 0) with hEw
+    have hEw0 : 0 ≤ Ew := Finset.sum_nonneg fun ξ _ => by split_ifs <;> positivity
+    have hc := cov_le (phiHom h (zc yy.1)) (phiHom h (zc yy.2)) (gset (q := q) γ₂ β v i) hgne
+      bt hbt hgset
+    have hpair : (∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        ∑ ξ' ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+          if (∀ a, ξ ⬝ᵥ phiHom h (zc yy.1) a + ξ' ⬝ᵥ phiHom h (zc yy.2) a = 0) then
+            bt ^ ((univ.filter fun r => ξ r ≠ 0).card + (univ.filter fun r => ξ' r ≠ 0).card)
+          else 0) ≤ Ew ^ 2 := by
+      rw [sq, hEw, Finset.sum_mul_sum]
+      refine Finset.sum_le_sum fun ξ _ => Finset.sum_le_sum fun ξ' _ => ?_
+      split_ifs with ho h1 h2 h2 h1 h2 h2
+      · rw [pow_add]; rfl
+      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).2 h2
+      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
+      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
+      all_goals first | positivity | simp
+    have hmain : |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
+        ≤ Ew ^ 2 := by
+      refine hc.trans ?_
+      calc μ ^ 2 * _ ≤ 1 * Ew ^ 2 := by
+            refine mul_le_mul (by nlinarith) hpair (Finset.sum_nonneg fun _ _ =>
+              Finset.sum_nonneg fun _ _ => by split_ifs <;> positivity) zero_le_one
+        _ = Ew ^ 2 := one_mul _
+    have htriv : |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
+        ≤ 1 := by
+      rw [abs_div, abs_of_pos hP, div_le_iff₀ hP, one_mul]
+      refine (Finset.abs_sum_le_sum_abs _ _).trans ?_
+      calc ∑ a, |X a yy.1 * X a yy.2| ≤ ∑ _a : Fin K → Fin L → Fin n → ZMod q, (1 : ℚ) := by
+            refine Finset.sum_le_sum fun a _ => ?_
+            simp only [hX]
+            rw [abs_mul]
+            have hb : ∀ P : Prop, [Decidable P] → |(if P then (1 : ℚ) else 0) - μ| ≤ 1 := by
+              intro P _; split_ifs <;> rw [abs_le] <;> constructor <;> linarith
+            calc _ ≤ 1 * 1 := mul_le_mul (hb _) (hb _) (abs_nonneg _) zero_le_one
+              _ = 1 := one_mul 1
+        _ = _ := by simp
+    rcases Nat.eq_zero_or_pos (D yy) with hD | hD
+    · have : Ew = 0 := by
+        refine Finset.sum_eq_zero fun ξ hξ => ?_
+        rw [if_neg]
+        intro hd
+        have hS : degS ζ yy.1 yy.2 = ∅ := Finset.card_eq_zero.mp hD
+        rw [hS] at hd
+        exact (Finset.mem_erase.mp hξ).1 (dualIn_empty h.inj ξ hd)
+      rw [this] at hmain
+      refine hmain.trans ?_
+      simp only [Hf]
+      linarith [hHf0 (D yy), (show (0:ℚ) ≤ if dm + 1 ≤ D yy then 1 else 0 by
+        split_ifs <;> norm_num), (show (0:ℚ) ^ 2 = 0 by norm_num)]
+    · by_cases hdm : D yy ≤ dm
+      · have hE := hEb _ hD hdm
+        refine hmain.trans ?_
+        have h1 : Ew ^ 2 ≤ Eb (D yy) ^ 2 := pow_le_pow_left₀ hEw0 hE 2
+        refine h1.trans ?_
+        simp only [Hf]
+        have := Finset.single_le_sum (f := fun e => if e ≤ D yy then Eb e ^ 2 else 0)
+          (fun e _ => by split_ifs <;> positivity) (Finset.mem_Icc.mpr ⟨hD, hdm⟩)
+        simp only [le_refl, if_true] at this
+        linarith [(show (0:ℚ) ≤ if dm + 1 ≤ D yy then 1 else 0 by split_ifs <;> norm_num)]
+      · refine htriv.trans ?_
+        simp only [Hf, if_pos (by omega : dm + 1 ≤ D yy)]
+        linarith [hHf0 (D yy)]
+  -- average over `a`, then over pairs
+  have hprobs : ∀ e, (((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ) / (Bx ×ˢ Bx).card
+      ≤ n.choose e * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e := by
+    intro e
+    have := deg_card_prob (L := L) h.inj hγ1 hγ e
+    unfold prob at this
+    refine this.trans (le_of_eq ?_)
+    rw [div_pow, ← pow_mul, mul_comm L e]; ring
+  have hBB : ((Bx ×ˢ Bx).card : ℚ) = (Bx.card : ℚ) ^ 2 := by rw [card_product]; push_cast; ring
+  have hsplit : ∑ yy ∈ Bx ×ˢ Bx, Hf (D yy)
+      = ∑ e ∈ Icc 1 dm, Eb e ^ 2 * (((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ)
+        + (((Bx ×ˢ Bx).filter fun yy => dm + 1 ≤ D yy).card : ℚ) := by
+    simp only [Hf, Finset.sum_add_distrib]
+    rw [Finset.sum_comm]
+    congr 1
+    · refine Finset.sum_congr rfl fun e _ => ?_
+      rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul, mul_comm]
+    · rw [Finset.sum_boole]
+  have hBsub : B' ×ˢ B' ⊆ Bx ×ˢ Bx := Finset.product_subset_product hB' hB'
+  calc avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2)
+      = (∑ yy ∈ B' ×ˢ B', (∑ a, X a yy.1 * X a yy.2)
+          / Fintype.card (Fin K → Fin L → Fin n → ZMod q)) / (Bx.card : ℚ) ^ 2 := by
+        unfold avg
+        simp_rw [hDev]
+        have e1 : ∑ a : Fin K → Fin L → Fin n → ZMod q,
+            (∑ y ∈ B', ∑ y' ∈ B', X a y * X a y') / (Bx.card : ℚ) ^ 2
+            = (∑ y ∈ B', ∑ y' ∈ B', ∑ a, X a y * X a y') / (Bx.card : ℚ) ^ 2 := by
+          rw [← Finset.sum_div]; congr 1
+          rw [Finset.sum_comm]
+          exact Finset.sum_congr rfl fun y _ => Finset.sum_comm
+        have e2 : ∑ yy ∈ B' ×ˢ B', (∑ a, X a yy.1 * X a yy.2)
+            / (Fintype.card (Fin K → Fin L → Fin n → ZMod q) : ℚ)
+            = (∑ y ∈ B', ∑ y' ∈ B', ∑ a, X a y * X a y')
+              / (Fintype.card (Fin K → Fin L → Fin n → ZMod q) : ℚ) := by
+          rw [Finset.sum_product, Finset.sum_div]
+          exact Finset.sum_congr rfl fun y _ => by rw [Finset.sum_div]
+        rw [e1, e2]; ring
+    _ ≤ (∑ yy ∈ Bx ×ˢ Bx, Hf (D yy)) / (Bx.card : ℚ) ^ 2 := by
+        refine div_le_div_of_nonneg_right ?_ (by positivity)
+        calc _ ≤ ∑ yy ∈ B' ×ˢ B', |(∑ a, X a yy.1 * X a yy.2)
+                / Fintype.card (Fin K → Fin L → Fin n → ZMod q)| :=
+              Finset.sum_le_sum fun yy _ => le_abs_self _
+          _ ≤ ∑ yy ∈ Bx ×ˢ Bx, |(∑ a, X a yy.1 * X a yy.2)
+                / Fintype.card (Fin K → Fin L → Fin n → ZMod q)| :=
+              Finset.sum_le_sum_of_subset_of_nonneg hBsub fun _ _ _ => abs_nonneg _
+          _ ≤ _ := Finset.sum_le_sum fun yy _ => hcov yy
+    _ = ∑ e ∈ Icc 1 dm, Eb e ^ 2 * ((((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ)
+          / (Bx ×ˢ Bx).card)
+        + (((Bx ×ˢ Bx).filter fun yy => dm + 1 ≤ D yy).card : ℚ) / (Bx ×ˢ Bx).card := by
+        rw [hsplit, hBB, add_div, Finset.sum_div]
+        congr 1
+        refine Finset.sum_congr rfl fun e _ => ?_
+        ring
+    _ ≤ _ := by
+        refine add_le_add (Finset.sum_le_sum fun e _ => ?_) (hprobs (dm + 1))
+        rw [show ((n.choose e : ℚ) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e) * Eb e ^ 2
+            = Eb e ^ 2 * ((n.choose e : ℚ) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e) by ring]
+        exact mul_le_mul_of_nonneg_left (hprobs e) (sq_nonneg _)
+
+/-! ## The leak in terms of `Dev` -/
+
+lemma one_sub_pR {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) :
+    1 - pR q γ₂ β mb = ((mb * (2 * (γ₂ - β) - 1) : ℕ) : ℚ) / q := by
+  have h1 := hp.β_lt_γ₂
+  unfold pR
+  rw [sub_sub_cancel]
+  push_cast [Nat.cast_sub (by omega : 1 ≤ 2 * (γ₂ - β)), Nat.cast_sub h1.le]
+  ring
+
+lemma muP_eq {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ}
+    (hv : Bounded β v) (i : ℕ) (hi : i ≤ K * n) :
+    muP (q := q) γ₂ β v i = (1 - pR q γ₂ β mb) ^ i := by
+  have hq : (q : ℚ) ≠ 0 := by exact_mod_cast NeZero.ne q
+  unfold muP gset
+  have : ∀ r : Fin (K * n), ((if (r : ℕ) < i then good (q := q) γ₂ β v r else univ).card : ℚ) / q
+      = if (r : ℕ) < i then 1 - pR q γ₂ β mb else 1 := by
+    intro r
+    split_ifs
+    · rw [card_good hp hv r, one_sub_pR hp]
+    · rw [card_univ, ZMod.card, div_self hq]
+  simp_rw [this]
+  rw [Finset.prod_ite, Finset.prod_const_one, mul_one, Finset.prod_const]
+  congr 1
+  rw [Fin.card_filter_val_lt]
+  omega
+
+variable {m l : ℕ}
+
+lemma Pset_iff {γ₂ β : ℕ} (M : Matrix (Fin (K * n)) (Fin l) (ZMod q)) (v : Fin (K * n) → ℤ)
+    (y : Fin l → ℤ) (i : ℕ) :
+    M *ᵥ (fun k => (y k : ZMod q)) ∈ Pset (q := q) γ₂ β v i
+      ↔ ∀ r : Fin (K * n), (r : ℕ) < i → ¬ rFails q γ₂ β M v y r := by
+  simp only [Pset, gset, Fintype.mem_piFinset]
+  refine forall_congr' fun r => ?_
+  split_ifs with hr
+  · simp [good, rFails, wOf, hr]
+  · simp [hr]
+
+/-- **The leak is a sum of prefix deviations.** `rFail i` is "pass on the first `i`, not on the
+first `i+1`", and `zFail j` is "`y ∈ Bset j` and pass everywhere". -/
+theorem leak_le_Dev {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)}
+    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {u : Fin (L * n) → ℤ} {v : Fin (K * n) → ℤ}
+    (hu : Bounded β u) (hv : Bounded β v) (a : Fin K → Fin L → Fin n → ZMod q) :
+    leak q γ₁ γ₂ β mb (modMat mulmat a) u v
+      ≤ ∑ i : Fin (K * n), (Dev mulmat γ₁ γ₂ β v i (box γ₁ (L * n)) a
+          + Dev mulmat γ₁ γ₂ β v (i + 1) (box γ₁ (L * n)) a)
+        + ∑ j : Fin (L * n), Dev mulmat γ₁ γ₂ β v (K * n) (Bset γ₁ β u j) a := by
+  set M := modMat (K := K) (L := L) mulmat a
+  set Bx := box γ₁ (L * n)
+  set F : ℕ → Finset (Fin (L * n) → ℤ) := fun k =>
+    Bx.filter fun y => M *ᵥ zc y ∈ Pset (q := q) γ₂ β v k
+  have hBx : (0 : ℚ) < Bx.card := by
+    have := hp.β_lt_γ₁
+    rw [card_box_nat]; have : 0 < 2 * γ₁ := by omega
+    positivity
+  have hDevBx : ∀ k, Dev mulmat γ₁ γ₂ β v k Bx a
+      = |((F k).card : ℚ) / Bx.card - muP (q := q) γ₂ β v k| := by
+    intro k; unfold Dev; rw [div_self hBx.ne', one_mul]
+  unfold leak
+  refine add_le_add (Finset.sum_le_sum fun i _ => ?_) (Finset.sum_le_sum fun j _ => ?_)
+  · -- `rFail i`
+    have hsub : F (i + 1) ⊆ F i := by
+      intro y hy
+      obtain ⟨hyB, hy'⟩ := Finset.mem_filter.mp hy
+      refine Finset.mem_filter.mpr ⟨hyB, ?_⟩
+      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff] at hy' ⊢
+      exact fun r hr => hy' r (by omega)
+    have hev : (Bx.filter fun y => view q γ₁ γ₂ β M u v y = .rFail i) = F i \ F (i + 1) := by
+      ext y
+      simp only [Finset.mem_filter, Finset.mem_sdiff, F]
+      rw [view_eq_rFail, I, firstIdx_eq_some]
+      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff, Pset_iff]
+      constructor
+      · rintro ⟨hy, hfi, hlt⟩
+        refine ⟨⟨hy, fun r hr => hlt r (Fin.lt_def.mpr hr)⟩, fun h => ?_⟩
+        exact (h.2 i (by omega)) hfi
+      · rintro ⟨⟨hy, hpre⟩, hnot⟩
+        refine ⟨hy, ?_, fun r hr => hpre r (Fin.lt_def.mp hr)⟩
+        by_contra hfi
+        apply hnot ⟨hy, fun r hr => ?_⟩
+        rcases Nat.lt_succ_iff_lt_or_eq.mp hr with h1 | h1
+        · exact hpre r h1
+        · have : r = i := Fin.ext h1
+          rw [this]; exact hfi
+    have hprob : prob Bx (fun y => view q γ₁ γ₂ β M u v y = .rFail i)
+        = ((F i).card : ℚ) / Bx.card - ((F (i + 1)).card : ℚ) / Bx.card := by
+      unfold prob
+      rw [hev, Finset.card_sdiff_of_subset hsub, Nat.cast_sub (Finset.card_le_card hsub), sub_div]
+    have hgeom : geom (pR q γ₂ β mb) (K * n) (some i)
+        = muP (q := q) γ₂ β v i - muP (q := q) γ₂ β v (i + 1) := by
+      rw [muP_eq hp hv i (by omega), muP_eq hp hv (i + 1) (by omega)]
+      simp only [geom]; ring
+    rw [hprob, hgeom, hDevBx, hDevBx]
+    calc |((F i).card : ℚ) / Bx.card - ((F (i + 1)).card : ℚ) / Bx.card
+          - (muP (q := q) γ₂ β v i - muP (q := q) γ₂ β v (i + 1))|
+        = |(((F i).card : ℚ) / Bx.card - muP (q := q) γ₂ β v i)
+          - (((F (i + 1)).card : ℚ) / Bx.card - muP (q := q) γ₂ β v (i + 1))| := by ring_nf
+      _ ≤ _ := abs_sub _ _
+  · -- `zFail j`
+    have hev : (Bx.filter fun y => view q γ₁ γ₂ β M u v y = .zFail j)
+        = (Bset γ₁ β u j).filter fun y => M *ᵥ zc y ∈ Pset (q := q) γ₂ β v (K * n) := by
+      ext y
+      simp only [Finset.mem_filter, Bset]
+      rw [view_eq_zFail, I, firstIdx_eq_none]
+      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff]
+      constructor
+      · rintro ⟨hy, hI, hJ⟩; exact ⟨⟨hy, hJ⟩, fun r _ => hI r⟩
+      · rintro ⟨⟨hy, hJ⟩, hP⟩; exact ⟨hy, fun r => hP r r.2, hJ⟩
+    have hJ := J_dist hp u hu (some j)
+    have href : geom (pZ γ₁ β) (L * n) (some j) * geom (pR q γ₂ β mb) (K * n) none
+        = ((Bset γ₁ β u j).card : ℚ) / Bx.card * muP (q := q) γ₂ β v (K * n) := by
+      rw [← hJ, muP_eq hp hv (K * n) le_rfl]
+      simp only [geom]
+      unfold prob; rfl
+    unfold prob
+    rw [hev, href]
+    unfold Dev
+    exact le_rfl
+
+/-! ## Averaging over the matrix -/
+
+/-- The integer inequality checked by the kernel: `ρ = rn/rd`, `E_b(d) = ENr / Dc^(Kn)`. -/
+def numR (e q n K Bd Dc rn rd dm : ℕ) : ℕ :=
+  sumF (fun d => if 1 ≤ d then chooseC n d * rn ^ d * rd ^ (dm + 1 - d)
+      * ENr e q n K Bd Dc d ^ 2 else 0) (dm + 1)
+    + chooseC n (dm + 1) * rn ^ (dm + 1) * Dc ^ (2 * (K * n))
+
+/-- **Expected deviation.** If the kernel inequality holds with `2^(2j)`, then for every prefix
+length `i` and every sub-event `B'` of the box, `E_A Dev ≤ 2^-j`. -/
+theorem avg_Dev_le {ζ : Fin n → ZMod q}
+    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
+    {cz : ZMod q} (hwz : ∀ k, ζ k ^ n = cz) (hn : 0 < n)
+    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ} (hv : Bounded β v)
+    (hγ : 2 * γ₁ ≤ q) (e dm j : ℕ)
+    (hnum : 2 ^ (2 * j) * numR e q n K (q - mb * (2 * (γ₂ - β) - 1)) (mb * (2 * (γ₂ - β) - 1))
+        (q + 1) ((2 * γ₁) ^ L) dm
+      ≤ ((2 * γ₁) ^ L) ^ (dm + 1) * (mb * (2 * (γ₂ - β) - 1)) ^ (2 * (K * n)))
+    (i : ℕ) (B' : Finset (Fin (L * n) → ℤ)) (hB' : B' ⊆ box γ₁ (L * n)) :
+    avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a) ≤ 1 / 2 ^ j := by
+  set Dc := mb * (2 * (γ₂ - β) - 1) with hDc
+  set Bd := q - Dc with hBd
+  have hDcq : Dc ≤ q := pass_le_q hp
+  have hDc0 : 0 < Dc := by
+    have h1 := hp.mb_pos; have h2 := hp.β_lt_γ₂
+    exact Nat.mul_pos h1 (by omega)
+  have hq1 : 1 ≤ q := Nat.one_le_iff_ne_zero.mpr (NeZero.ne q)
+  have hγ1 : 0 < γ₁ := lt_of_le_of_lt (Nat.zero_le _) hp.β_lt_γ₁
+  have hDc' : (0 : ℚ) < Dc := by exact_mod_cast hDc0
+  set bt : ℚ := (Bd : ℚ) / Dc
+  have hgood : ∀ r, ((good (q := q) γ₂ β v r).card : ℚ) = Dc := fun r => by
+    rw [card_good hp hv r]
+  have hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card := by
+    intro r; rw [hgood]
+    simp only [bt, hBd]; rw [Nat.cast_sub hDcq]; field_simp; rfl
+  have hEb : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm →
+      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
+        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0)
+        ≤ (ENr e q n K Bd Dc S.card : ℚ) / (Dc : ℚ) ^ (K * n) :=
+    fun S _ _ => (wsum_le h.inj h.ne0 hwz S (by positivity)).trans
+      (wcount_le_rows hn e q Bd Dc S.card hq1 hDc0)
+  have hsq := Dsq_le (K := K) h (v := v) hγ1 hγ B' hB' i bt (by positivity) hbad dm
+    (fun d => (ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) hEb
+  -- the numeric side
+  set rd : ℕ := (2 * γ₁) ^ L
+  have hrd : (0 : ℚ) < rd := by positivity
+  have hρ : ((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L = ((q + 1 : ℕ) : ℚ) / rd := by
+    simp only [rd]; push_cast; ring
+  rw [hρ] at hsq
+  set η : ℚ := 1 / 2 ^ j
+  have hη : 0 < η := by positivity
+  have hS : ∑ d ∈ Icc 1 dm, ((n.choose d : ℚ) * (((q + 1 : ℕ) : ℚ) / rd) ^ d)
+        * ((ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) ^ 2
+      + n.choose (dm + 1) * (((q + 1 : ℕ) : ℚ) / rd) ^ (dm + 1) ≤ η ^ 2 := by
+    have hnumQ := (Nat.cast_le (α := ℚ)).mpr hnum
+    unfold numR at hnumQ
+    rw [sumF_eq] at hnumQ
+    push_cast at hnumQ
+    simp only [Nat.cast_ite, Nat.cast_zero, chooseC_eq] at hnumQ
+    rw [sumF_ite_Icc] at hnumQ
+    have hDn : (0 : ℚ) < (Dc : ℚ) ^ (K * n) := by positivity
+    have hsplit : ∀ d, d ≤ dm + 1 → (rd : ℚ) ^ (dm + 1) = (rd : ℚ) ^ d * (rd : ℚ) ^ (dm + 1 - d) :=
+      fun d hd => by rw [← pow_add]; congr 1; omega
+    have hlhs : ∑ d ∈ Icc 1 dm, ((n.choose d : ℚ) * (((q + 1 : ℕ) : ℚ) / rd) ^ d)
+          * ((ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) ^ 2
+        + n.choose (dm + 1) * (((q + 1 : ℕ) : ℚ) / rd) ^ (dm + 1)
+        = (∑ d ∈ Icc 1 dm, (n.choose d : ℚ) * ((q : ℚ) + 1) ^ d * (rd : ℚ) ^ (dm + 1 - d)
+            * (ENr e q n K Bd Dc d : ℚ) ^ 2
+          + (n.choose (dm + 1) : ℚ) * ((q : ℚ) + 1) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n)))
+          / ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n))) := by
+      rw [add_div, Finset.sum_div]
+      congr 1
+      · refine Finset.sum_congr rfl fun d hd => ?_
+        rw [hsplit d (by have := (Finset.mem_Icc.mp hd).2; omega)]
+        rw [show 2 * (K * n) = (K * n) * 2 by ring, pow_mul]
+        push_cast
+        simp only [div_pow]
+        field_simp
+        ring
+      · push_cast; rw [div_pow]; field_simp
+    rw [hlhs, div_le_iff₀ (by positivity)]
+    simp only [η, one_div, inv_pow]
+    rw [← pow_mul, mul_comm j 2]
+    rw [show ((2 : ℚ) ^ (2 * j))⁻¹ * ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n)))
+        = ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n))) / 2 ^ (2 * j) by ring]
+    rw [le_div_iff₀ (by positivity)]
+    simp only [rd] at hnumQ ⊢
+    push_cast at hnumQ ⊢
+    linarith
+  have hsq' := hsq.trans hS
+  -- AM-GM pointwise
+  have hpt : ∀ x : ℚ, |x| ≤ (x ^ 2 / η + η) / 2 := by
+    intro x
+    have : 0 ≤ (|x| - η) ^ 2 / η := div_nonneg (sq_nonneg _) hη.le
+    rw [sub_sq, sq_abs] at this
+    have e1 : (x ^ 2 - 2 * |x| * η + η ^ 2) / η = x ^ 2 / η - 2 * |x| + η := by field_simp
+    linarith
+  calc avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a)
+      ≤ avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+          (Dev mulmat γ₁ γ₂ β v i B' a ^ 2 / η + η) / 2) := by
+        refine avg_mono fun a => ?_
+        exact (le_abs_self _).trans (hpt (Dev mulmat γ₁ γ₂ β v i B' a))
+    _ = (avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2) / η
+          + η) / 2 := by
+        unfold avg
+        rw [Finset.sum_div]
+        simp only [add_div, Finset.sum_add_distrib, Finset.sum_div, Finset.sum_const, card_univ,
+          nsmul_eq_mul]
+        have : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
+          exact_mod_cast Fintype.card_pos
+        field_simp
+    _ ≤ (η ^ 2 / η + η) / 2 := by
+        have := div_le_div_of_nonneg_right hsq' hη.le
+        linarith
+    _ = η := by field_simp; ring
+
+/-- **The leak on average over the matrix**, by the product-Fourier bound:
+`E_A leak ≤ (2·K n + L n) / 2^j` whenever the kernel inequality holds with `2^(2j)`. -/
+theorem leak_avg_fourier {ζ : Fin n → ZMod q}
+    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
+    {cz : ZMod q} (hwz : ∀ k, ζ k ^ n = cz) (hn : 0 < n)
+    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {u : Fin (L * n) → ℤ} {v : Fin (K * n) → ℤ}
+    (hu : Bounded β u) (hv : Bounded β v) (hγ : 2 * γ₁ ≤ q) (e dm j : ℕ)
+    (hnum : 2 ^ (2 * j) * numR e q n K (q - mb * (2 * (γ₂ - β) - 1)) (mb * (2 * (γ₂ - β) - 1))
+        (q + 1) ((2 * γ₁) ^ L) dm
+      ≤ ((2 * γ₁) ^ L) ^ (dm + 1) * (mb * (2 * (γ₂ - β) - 1)) ^ (2 * (K * n))) :
+    avg (fun a : Fin K → Fin L → Fin n → ZMod q => leak q γ₁ γ₂ β mb (modMat mulmat a) u v)
+      ≤ (2 * (K * n) + L * n : ℕ) / 2 ^ j := by
+  have hD : ∀ i (B' : Finset (Fin (L * n) → ℤ)), B' ⊆ box γ₁ (L * n) →
+      avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a) ≤ 1 / 2 ^ j :=
+    fun i B' hB' => avg_Dev_le h hwz hn hp hv hγ e dm j hnum i B' hB'
+  refine (avg_mono fun a => leak_le_Dev hp hu hv a).trans ?_
+  rw [avg_add, avg_finset_sum, avg_finset_sum]
+  have h1 : ∑ i : Fin (K * n), avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+      Dev mulmat γ₁ γ₂ β v i (box γ₁ (L * n)) a + Dev mulmat γ₁ γ₂ β v (i + 1) (box γ₁ (L * n)) a)
+      ≤ ∑ _i : Fin (K * n), 2 * (1 / 2 ^ j : ℚ) := by
+    refine Finset.sum_le_sum fun i _ => ?_
+    rw [avg_add]
+    linarith [hD i _ subset_rfl, hD (i + 1) _ subset_rfl]
+  have h2 : ∑ jj : Fin (L * n), avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
+      Dev mulmat γ₁ γ₂ β v (K * n) (Bset γ₁ β u jj) a) ≤ ∑ _jj : Fin (L * n), (1 / 2 ^ j : ℚ) :=
+    Finset.sum_le_sum fun jj _ => hD _ _ (Finset.filter_subset _ _)
+  refine (add_le_add h1 h2).trans (le_of_eq ?_)
+  simp only [Finset.sum_const, card_univ, Fintype.card_fin, nsmul_eq_mul]
+  push_cast; ring
+
+/-! ## ML-DSA -/
+
+section MLDSA
+set_option maxRecDepth 100000
+
+/-- The kernel-checked inequality for ML-DSA-44. -/
+theorem numR_44 : 2 ^ (2 * 417) * numR 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1))
+    (44 * (2 * (95232 - 78) - 1)) (8380417 + 1) ((2 * 2 ^ 17) ^ 4) 19
+  ≤ ((2 * 2 ^ 17) ^ 4) ^ (19 + 1) * (44 * (2 * (95232 - 78) - 1)) ^ (2 * (4 * 256)) := by
+  decide +kernel
+
+/-- **ML-DSA-44, product-Fourier route.** -/
+theorem leak_mldsa44_fourier {u : Fin (4 * 256) → ℤ} {v : Fin (4 * 256) → ℤ}
+    (hu : Bounded 78 u) (hv : Bounded 78 v) :
+    avg (fun a => leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) u v) ≤ 1 / 2 ^ 405 := by
+  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hu hv
+    (by norm_num) 330 19 417 numR_44).trans ?_
+  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
+    show 417 = 12 + 405 from rfl, pow_add]
+  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
+
+/-- The kernel-checked inequality for ML-DSA-65. -/
+theorem numR_65 : 2 ^ (2 * 560) * numR 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1))
+    (16 * (2 * (261888 - 196) - 1)) (8380417 + 1) ((2 * 2 ^ 19) ^ 5) 20
+  ≤ ((2 * 2 ^ 19) ^ 5) ^ (20 + 1) * (16 * (2 * (261888 - 196) - 1)) ^ (2 * (6 * 256)) := by
+  decide +kernel
+
+/-- **ML-DSA-65, product-Fourier route.** -/
+theorem leak_mldsa65_fourier {u : Fin (5 * 256) → ℤ} {v : Fin (6 * 256) → ℤ}
+    (hu : Bounded 196 u) (hv : Bounded 196 v) :
+    avg (fun a => leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) u v) ≤ 1 / 2 ^ 547 := by
+  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hu hv
+    (by norm_num) 330 20 560 numR_65).trans ?_
+  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
+    show 560 = 13 + 547 from rfl, pow_add]
+  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
+
+/-- The kernel-checked inequality for ML-DSA-87. -/
+theorem numR_87 : 2 ^ (2 * 742) * numR 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1))
+    (16 * (2 * (261888 - 120) - 1)) (8380417 + 1) ((2 * 2 ^ 19) ^ 7) 23
+  ≤ ((2 * 2 ^ 19) ^ 7) ^ (23 + 1) * (16 * (2 * (261888 - 120) - 1)) ^ (2 * (8 * 256)) := by
+  decide +kernel
+
+/-- **ML-DSA-87, product-Fourier route.** -/
+theorem leak_mldsa87_fourier {u : Fin (7 * 256) → ℤ} {v : Fin (8 * 256) → ℤ}
+    (hu : Bounded 120 u) (hv : Bounded 120 v) :
+    avg (fun a => leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) u v) ≤ 1 / 2 ^ 729 := by
+  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hu hv
+    (by norm_num) 330 23 742 numR_87).trans ?_
+  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
+    show 742 = 13 + 729 from rfl, pow_add]
+  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
+
+
+/-- **ML-DSA-44, many attempts**, with the product-Fourier leak bound (compare
+`RejOrder.bad_frac_mldsa44`). -/
+theorem bad_frac_mldsa44_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
+    (us : ι → Fin (4 * 256) → ℤ) (vs : ι → Fin (4 * 256) → ℤ)
+    (hus : ∀ i, Bounded 78 (us i)) (hvs : ∀ i, Bounded 78 (vs i)) {η : ℚ} (hη : 0 < η) :
+    ((univ.filter fun a => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+      ≤ (∑ i, w i) * (1 / 2 ^ 405) / η :=
+  bad_frac (fun _ _ hu hv => leak_mldsa44_fourier hu hv) w hw us vs hus hvs hη
+
+/-- **ML-DSA-65, many attempts**, with the product-Fourier leak bound (compare
+`RejOrder.bad_frac_mldsa65`). -/
+theorem bad_frac_mldsa65_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
+    (us : ι → Fin (5 * 256) → ℤ) (vs : ι → Fin (6 * 256) → ℤ)
+    (hus : ∀ i, Bounded 196 (us i)) (hvs : ∀ i, Bounded 196 (vs i)) {η : ℚ} (hη : 0 < η) :
+    ((univ.filter fun a => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+      ≤ (∑ i, w i) * (1 / 2 ^ 547) / η :=
+  bad_frac (fun _ _ hu hv => leak_mldsa65_fourier hu hv) w hw us vs hus hvs hη
+
+/-- **ML-DSA-87, many attempts**, with the product-Fourier leak bound (compare
+`RejOrder.bad_frac_mldsa87`). -/
+theorem bad_frac_mldsa87_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
+    (us : ι → Fin (7 * 256) → ℤ) (vs : ι → Fin (8 * 256) → ℤ)
+    (hus : ∀ i, Bounded 120 (us i)) (hvs : ∀ i, Bounded 120 (vs i)) {η : ℚ} (hη : 0 < η) :
+    ((univ.filter fun a => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+      ≤ (∑ i, w i) * (1 / 2 ^ 729) / η :=
+  bad_frac (fun _ _ hu hv => leak_mldsa87_fourier hu hv) w hw us vs hus hvs hη
+
+end MLDSA
+
+end RejFourier
+
+end
+
+end RejOrderFourierPart

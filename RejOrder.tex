@@ -47,11 +47,12 @@ rejected attempt, which check failed and at which coefficient. This note explain
 proof (Lean~4 + Mathlib, no \lean{sorry}, standard axioms only) about an attacker who sees
 \emph{more} than timing can realistically give: the outcome of every attempt separately, with the
 failing check and the exact failing coefficient. Even this view is statistically close to a
-distribution that does not depend on the secret: at most $2^{-289}$, $2^{-418}$, $2^{-568}$ in
-total variation per attempt for ML-DSA-44/65/87, on average over the public matrix $A$. As a
-consequence, for every secret key, all but a $2^{-126}$ fraction of matrices (ML-DSA-44;
-$2^{-255}$ for ML-DSA-65, $2^{-405}$ for ML-DSA-87) give an attacker who observes $2^{35}$
-signatures this way an advantage of at most $2^{-128}$. These fractions are crude upper bounds.
+distribution that does not depend on the secret: at most $2^{-405}$, $2^{-547}$, $2^{-729}$ in
+total variation per attempt for ML-DSA-44/65/87, on average over the public matrix $A$
+(Section~\ref{sec:fourier}; the route described in most of this note gives $2^{-289}$, $2^{-418}$,
+$2^{-568}$). As a consequence, for every secret key, all but a $2^{-242}$ fraction of matrices
+(ML-DSA-44; $2^{-384}$ for ML-DSA-65, $2^{-566}$ for ML-DSA-87) give an attacker who observes
+$2^{35}$ signatures this way an advantage of at most $2^{-128}$. These fractions are crude upper bounds.
 We state precisely what is proved, list the modelling assumptions, and sketch the ideas of the
 proof.
 \end{abstract}
@@ -71,21 +72,25 @@ advantage in distinguishing these observations from secret-independent noise is 
 $2^{-128}$.}
 \end{quote}
 
-\begin{center}
-\begin{tabular}{lcc}
+\begin{center}\small
+\begin{tabular}{@{}lcccc@{}}
 \toprule
- & leak per attempt (Thm.~\ref{thm:main}) & fraction of bad $A$ \\
+ & \multicolumn{2}{c}{product-Fourier route (Sec.~\ref{sec:fourier})}
+ & \multicolumn{2}{c}{original route (Thm.~\ref{thm:main})}\\
+ & leak per attempt & fraction of bad $A$ & leak per attempt & fraction of bad $A$ \\
 \midrule
-ML-DSA-44 & $2^{-289}$ & $\le 2^{-126}$ \\
-ML-DSA-65 & $2^{-418}$ & $\le 2^{-255}$ \\
-ML-DSA-87 & $2^{-568}$ & $\le 2^{-405}$ \\
+ML-DSA-44 & $2^{-405}$ & $\le 2^{-242}$ & $2^{-289}$ & $\le 2^{-126}$ \\
+ML-DSA-65 & $2^{-547}$ & $\le 2^{-384}$ & $2^{-418}$ & $\le 2^{-255}$ \\
+ML-DSA-87 & $2^{-729}$ & $\le 2^{-566}$ & $2^{-568}$ & $\le 2^{-405}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{itemize}
   \item The per-attempt bound and the Markov step over $A$ are machine-checked
-        (\lean{leak\_mldsa*}, \lean{bad\_frac\_mldsa*}); the arithmetic is in
+        (\lean{leak\_mldsa*\_fourier} and \lean{bad\_frac\_mldsa*\_fourier} in
+        \lean{Bathwater.lean}; for the original route \lean{leak\_mldsa*} and
+        \lean{bad\_frac\_mldsa*} in \lean{RejOrder.lean}); the arithmetic is in
         Section~\ref{sec:many}.
   \item \textbf{Stronger than timing.} A timing attacker sees one number per signature, its total
         signing time. Our attacker instead sees an attempt's outcome down to the failing
@@ -740,6 +745,34 @@ in the headline are correspondingly pessimistic. Closing the gap with a proof wo
 different technique.
 
 %======================================================================
+\section{A sharper bound via the product-Fourier bound}\label{sec:fourier}
+
+The companion development (\lean{Bathwater.lean}, section \lean{RejOrderFourierPart}) proves the
+same statement as Theorem~\ref{thm:main} with better constants and a much shorter argument, using
+a tool built for the alt-r0 analysis there.
+
+\paragraph{Views as product sets.} Let $P_i = \prod_{r<i} \mathrm{good}_r \times \prod_{r \ge i}
+\Z_q$ be the set of $w$ whose first $i$ coordinates pass the $r_0$ check. Then ``$r_0$ first fails
+at $i$'' is $Ay \in P_i \setminus P_{i+1}$, and ``$z$ first fails at $j$'' is $y \in B_j$ and
+$Ay \in P_m$. So the leak is at most $\sum_i (D_i + D_{i+1}) + \sum_j D_m(B_j)$, where
+$D_i(B') = |\Pr_y[y \in B', Ay \in P_i] - \Pr[B']\,\mu_i|$ and $\mu_i$ is the density of $P_i$
+(\lean{leak\_le\_Dev}).
+
+\paragraph{Second moment.} $\E_A D_i(B')^2$ is a sum over pairs $(y,y')$ of covariances over $A$
+of indicators of the \emph{product} set $P_i$. Its Fourier coefficients factor over coordinates,
+and each nonzero frequency on a passing coordinate costs $b = p_R/(1-p_R) \approx 2^{-10.25}$
+(\lean{cov\_le}); free coordinates cost nothing. Orthogonal test vectors live on the degenerate
+slots of $(y,y')$; for independent $y, y'$ a slot is degenerate with probability at most
+$(q+1)/(2\gamma_1)^\ell$ (\lean{deg\_card\_prob}), and the $b$-weighted number of test vectors on
+$d$ slots is bounded by rows (\lean{wcount\_le\_rows}). This replaces the Bonferroni truncation, the
+sums over coordinate sets and the cap of Section~\ref{sec:proof} (\lean{Dsq\_le}).
+
+\paragraph{Numbers.} One integer inequality per parameter set, checked by the kernel
+(\lean{numR\_44} etc.), gives $\E_A D_i(B') \le 2^{-417}, 2^{-560}, 2^{-742}$ for every $i$ and
+every sub-event $B'$ (\lean{avg\_Dev\_le}), hence
+$\E_A[\leak] \le (2kn + \ell n)\cdot 2^{-j}$, i.e.\ $2^{-405}$, $2^{-547}$, $2^{-729}$
+(\lean{leak\_mldsa44\_fourier} etc.).
+
 \section{Map of the Lean file}
 %======================================================================
 

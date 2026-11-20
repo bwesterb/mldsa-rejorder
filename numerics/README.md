@@ -39,9 +39,10 @@ The tail factor `τ = (2γ₁)^-(L-1)` is unchanged.
 With the cut-off restricted to `d₁ ≤ 27` (inside the range where `B = 5` is valid), the totals
 are unchanged (−386, −424, −475); the main term becomes −517 / −519 / −519.
 
-These are estimates of the variance only (no `−1` for rounding `k`). Through `main2`
-(Markov on the second moment, `ε ≈ 2^(-k/3)`), the headline `ε` would move from
-`2^-98 / 2^-121 / 2^-126` to about `2^-128 / 2^-141 / 2^-158`. The exceptional term still
+These are estimates of the variance only. `item3check.py` gives the integer inequality the
+kernel checks (`numQ_44_full` etc. in `Bathwater.lean`): `k = 382 / 420 / 472` with `d₁ = 27`,
+`d₂ = 19`, `B = 5`. Through `main2` the headlines are now `ε = 2^-127 / 2^-140 / 2^-157`, bad
+fractions `2^-127 / 2^-139 / 2^-157`, `ℓ¹` distance `2^-125 / 2^-138 / 2^-155`. The exceptional term still
 dominates after item 3, so item 2 (with its caveat that slots where both heads vanish stay
 crude) would be the next step on top of it.
 
