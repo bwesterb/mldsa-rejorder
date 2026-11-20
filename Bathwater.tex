@@ -385,12 +385,55 @@ the toy has tails that can never be accepted: the tail is kept on an r$_0$ failu
 failure at $y_1$, and for some tails one of the two always fails. This does not happen for real
 parameters, but it is why Algorithm~3 has no toy theorem; its two ingredients each leak.
 
+\section{Min-entropy of the commitment}\label{sec:minentropy}
+
+The hop from real signing to the Trans model (fresh challenges) loses, per signing query, roughly
+$q_H\,\varepsilon$ times the expected number of attempts, where $\varepsilon$ bounds the
+probability of guessing an attempt's commitment $w_1 = \mathrm{HighBits}(Ay)$ given everything
+else \cite{BBDD23}; the thesis (\S8.4) adapts this to nonce reuse, with a guessing probability
+$\varepsilon_j$ per attempt. With reuse the tail of $y$ can be correlated with earlier attempts,
+but in alt-r0 and alt-z the polynomial $y_{h_0}$ (the first one) is fresh in every attempt. So it
+suffices to bound $\Pr_{y_{h_0}}[\mathrm{HighBits}(A\cdot(y_{h_0},t)) = W]$ for every fixed tail
+$t$ and target $W$ (\lean{MinEntropy.lean}).
+
+\begin{theorem}[\lean{guess\_le}, \lean{minEntropy}]
+If the entry $A_{i,h_0}$ has $z$ zero NTT slots, then for every tail $t$ and every $W$
+\[
+  \Pr_{y_{h_0}}\big[\mathrm{HighBits}((A y)_i) = W_i\big]
+  \le \Big(\frac{2\gamma_2 + 1}{2\gamma_1}\Big)^{n} (2\gamma_1)^{z}.
+\]
+\end{theorem}
+The value $(Ay)_i$ is determined by its high and low bits (\lean{eq\_of\_bits}), and the low bits
+take at most $2\gamma_2+1$ values per coefficient. Two heads with the same $(Ay)_i$ differ by an
+element killed by $A_{i,h_0}$, whose NTT vanishes off the $z$ zero slots, so by the window
+argument at most $(2\gamma_1)^z$ heads share a value. The thesis's argument is the case $z = 0$
+(an invertible entry).
+
+\begin{theorem}[\lean{card\_bad\_le}, \lean{minEntropy\_mldsa44}, \lean{\_65}, \lean{\_87}]
+The matrices in which every entry of column $h_0$ has at least $d$ zero slots are a fraction at
+most $(\binom nd / q^d)^k$. With $d = 2$:
+\begin{center}
+\begin{tabular}{@{}lcc@{}}
+\toprule
+ & guessing probability $\varepsilon$ & outside a fraction of $A$\\
+\midrule
+ML-DSA-44 & $\le 2^{-99}$ & $\le 2^{-124}$\\
+ML-DSA-65 & $\le 2^{-236}$ & $\le 2^{-186}$\\
+ML-DSA-87 & $\le 2^{-236}$ & $\le 2^{-248}$\\
+\bottomrule
+\end{tabular}
+\end{center}
+\end{theorem}
+With $d = 1$ (the thesis's invertibility condition) the numbers are $\varepsilon \le 2^{-118}$
+outside a $2^{-60}$ fraction for ML-DSA-44; $d = 2$ trades $18$ bits of $\varepsilon$ for $64$
+bits of the fraction. The game-hopping argument itself (from these $\varepsilon_j$ to the loss in
+the reduction) is that of \cite{BBDD23} and the thesis, and is not formalised here.
+
 \section{What is not covered}\label{sec:notcovered}
 
 \begin{itemize}
-\item \textbf{Sign $\to$ Trans.} The hop from the real scheme to fresh challenges needs the
-  commitment $w_1$ to have high min-entropy in every attempt, also with a reused tail. The thesis
-  (\S8.4.4) argues this when the first column of $A$ has an invertible entry. Not formalised.
+\item \textbf{Sign $\to$ Trans.} The min-entropy it needs is proved
+  (Section~\ref{sec:minentropy}); the game hops themselves are not formalised.
 \item \textbf{Many signatures.} The alt-r0 distances are per signature; there is no hybrid
   theorem over many signatures, and the numbers are far from what is believed true.
 \item \textbf{Timing.} Exactness is about the accepted signature and the number of attempts. With
@@ -419,12 +462,14 @@ Section & Contents\\
 \lean{Fourier.lean} & covariance of product-set indicators (\lean{cov\_le})\\
 \lean{AltR0.lean} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_mldsa*}\\
 \lean{AltR0Final.lean} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
+\lean{MinEntropy.lean} & guessing the commitment with a fresh head, \lean{minEntropy\_mldsa*}\\
 \bottomrule
 \end{tabular}
 \end{center}
 \lean{Bathwater.lean} and \lean{Fourier.lean} import only Mathlib; \lean{AltR0.lean} imports
 \lean{RejOrder.lean} and \lean{Fourier.lean}; \lean{AltR0Final.lean} imports \lean{Bathwater.lean}
-and \lean{AltR0.lean}. \lean{build.sh} compiles them in order.
+and \lean{AltR0.lean}; \lean{MinEntropy.lean} imports \lean{AltR0.lean}. \lean{build.sh}
+compiles them in order.
 
 \begin{thebibliography}{9}
 \bibitem{SW20} A.~Sprenkels and B.~Westerbaan. Don't throw your nonces out with the bathwater:

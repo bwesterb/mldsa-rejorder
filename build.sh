@@ -6,7 +6,7 @@ here="$(cd "$(dirname "$0")" && pwd)"
 proj="${MATHLIB_PROJECT:?set MATHLIB_PROJECT to a Lake project directory that has Mathlib}"
 mkdir -p "$here/.build"
 cd "$proj"
-for m in RejOrder Fourier Bathwater AltR0 AltR0Final; do
+for m in RejOrder Fourier Bathwater AltR0 AltR0Final MinEntropy; do
   echo "== $m"
   lake env bash -c "LEAN_PATH=\$LEAN_PATH:$here/.build lean -R '$here' -o '$here/.build/$m.olean' '$here/$m.lean'" \
     2>&1 | grep -E "error|sorry" && { echo "FAILED: $m"; exit 1; } || true
