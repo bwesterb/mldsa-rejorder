@@ -49,9 +49,10 @@ proof (Lean~4 + Mathlib, no \lean{sorry}, standard axioms only) about an attacke
 failing check and the exact failing coefficient. Even this view is statistically close to a
 distribution that does not depend on the secret: at most $2^{-405}$, $2^{-547}$, $2^{-729}$ in
 total variation per attempt for ML-DSA-44/65/87, on average over the public matrix $A$. As a
-consequence, for every secret key, all but a $2^{-242}$ fraction of matrices
-(ML-DSA-44; $2^{-384}$ for ML-DSA-65, $2^{-566}$ for ML-DSA-87) give an attacker who observes
-$2^{35}$ signatures this way an advantage of at most $2^{-128}$. These fractions are crude upper bounds.
+consequence, for every secret key, all but a $2^{-213}$ fraction of matrices
+(ML-DSA-44; $2^{-291}$ for ML-DSA-65, $2^{-409}$ for ML-DSA-87) give an attacker who observes
+$2^{64}$ signatures this way an advantage of at most $2^{-128}$ ($2^{-192}$, $2^{-256}$ for
+ML-DSA-65/87, matching their security levels). These fractions are crude upper bounds.
 We state precisely what is proved, list the modelling assumptions, and sketch the ideas of the
 proof.
 \end{abstract}
@@ -64,11 +65,11 @@ proof.
 
 \begin{quote}
 \emph{Fix any ML-DSA secret key. For all public matrices $A$ except a small fraction, consider
-an attacker who, for each of $2^{35}$ signatures (a thousand per second for a year), observes a
-signing attempt in full detail: whether circl's $r_0$ check or $z$ check rejected it, and at
+an attacker who, for each of $2^{64}$ signatures (far more than any signer will ever
+produce), observes a signing attempt in full detail: whether circl's $r_0$ check or $z$ check rejected it, and at
 exactly which coefficient. This is far more than a timing measurement reveals. The attacker's
 advantage in distinguishing these observations from secret-independent noise is at most
-$2^{-128}$.}
+$2^{-128}$, $2^{-192}$, $2^{-256}$ for ML-DSA-44/65/87.}
 \end{quote}
 
 \begin{center}\small
@@ -76,9 +77,9 @@ $2^{-128}$.}
 \toprule
  & leak per attempt (Thm.~\ref{thm:main}) & fraction of bad $A$ \\
 \midrule
-ML-DSA-44 & $2^{-405}$ & $\le 2^{-242}$ \\
-ML-DSA-65 & $2^{-547}$ & $\le 2^{-384}$ \\
-ML-DSA-87 & $2^{-729}$ & $\le 2^{-566}$ \\
+ML-DSA-44 & $2^{-405}$ & $\le 2^{-213}$ \\
+ML-DSA-65 & $2^{-547}$ & $\le 2^{-291}$ \\
+ML-DSA-87 & $2^{-729}$ & $\le 2^{-409}$ \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -92,12 +93,12 @@ ML-DSA-87 & $2^{-729}$ & $\le 2^{-566}$ \\
         coefficient. We model one timing measurement as revealing at most one attempt in this much
         detail.
   \item \textbf{One attempt's worth per signature.} Accordingly, the fractions are
-        $2^{35}\cdot2^{128}\cdot\varepsilon$: each signature is charged the leak of a single
+        $2^{64}\cdot2^{\lambda}\cdot\varepsilon$ for advantage $2^{-\lambda}$: each signature is charged the leak of a single
         attempt. This is a modelling choice, not something we prove. Theorem~\ref{thm:main}
         bounds one attempt. An attacker who saw \emph{every} attempt of a signature in full
         detail would be charged for every attempt, $\E[N]\cdot\varepsilon$ with $N$ the number of
         attempts ($\E[N]\approx4.3$, $5.1$, $3.9$). Charging $\E[N]$ instead would make each
-        fraction $2$--$3$ bits larger ($2^{-239}$, $2^{-381}$, $2^{-564}$).
+        fraction $2$--$3$ bits larger ($2^{-210}$, $2^{-288}$, $2^{-407}$).
   \item \textbf{These fractions are crude upper bounds.} Bad matrices are probably much rarer.
         Markov's inequality uses nothing but the average over $A$, which is the worst possible
         case for it: all the leak concentrated on a few matrices. The average is itself
@@ -106,9 +107,9 @@ ML-DSA-87 & $2^{-729}$ & $\le 2^{-566}$ \\
         information a timing attacker never sees: which coefficient failed. Numerical experiments put
         the true per-attempt deviation for a random $A$ thousands of bits below the proved bound
         (Section~\ref{sec:tight}).
-  \item The trade-off is linear: a weaker advantage target $2^{-128+d}$ makes the fraction $2^d$
+  \item The trade-off is linear: a weaker advantage target $2^{-\lambda+d}$ makes the fraction $2^d$
         times smaller. For example, for ML-DSA-44, advantage at most $2^{-64}$ holds for all but a
-        $2^{-306}$ fraction of $A$.
+        $2^{-277}$ fraction of $A$.
   \item Not covered: the later $ct_0$ and hint checks, and timing variation from other parts of
         signing. The hybrid
         argument over attempts and the random-oracle modelling of the challenge are standard but
@@ -307,11 +308,11 @@ shifts $(u_i,v_i)$ with weights $w_i\ge0$ of total weight $W=\sum_i w_i$, and ev
 \]
 \end{theorem}
 
-For the headline of Section~\ref{sec:headline}: $2^{35}$ signatures, each charged as one
+For the headline of Section~\ref{sec:headline}: $2^{64}$ signatures, each charged as one
 attempt, with that attempt's weight spread uniformly over the challenges it could receive, so
-$W=2^{35}$; take $\eta=2^{-128}$. Then the fraction of bad $A$ is at most
-$2^{35+128}\varepsilon$, i.e.\ $2^{-242}$, $2^{-384}$, $2^{-566}$. Charging every attempt instead
-means giving attempt $i$ of a signature weight $\Pr[N\ge i]$, so $W=2^{35}\,\E[N]$.
+$W=2^{64}$; take $\eta=2^{-\lambda}$ with $\lambda = 128, 192, 256$ for ML-DSA-44/65/87. Then the
+fraction of bad $A$ is at most $2^{64+\lambda}\varepsilon$, i.e.\ $2^{-213}$, $2^{-291}$, $2^{-409}$. Charging every attempt instead
+means giving attempt $i$ of a signature weight $\Pr[N\ge i]$, so $W=2^{64}\,\E[N]$.
 
 What is \emph{not} in Lean is the hybrid step from ``sum of leaks'' to ``attacker advantage over
 many attempts'', and the random-oracle step that makes the challenges uniform and independent of
