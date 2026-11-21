@@ -312,7 +312,10 @@ coefficients of the negacyclic matrix product, checked by evaluating at the $256
 $X^{256}+1$ and inverting the Vandermonde matrix) and \lean{avg\_matrix} (uniform $A$ means
 uniform coefficients). The headline theorems below use the second moment only in this form (via
 \lean{var\_mldsa44\_ring} etc.), so Theorem~\ref{thm:moment} is their only ML-DSA-specific
-computation.
+computation. The headline theorems for ML-DSA (alt-r0, Algorithm~3 and the min-entropy bound)
+are stated over $R_q$ in the same way: $A$ is a matrix over $R_q$, the r$_0$-check \lean{r0R}
+reads $Ay$ through \lean{ringMat}, and the sets of bad matrices (\lean{Bad2R}, \lean{BadMR}) are
+sets of matrices over $R_q$.
 
 Combining it with Section~\ref{sec:altr0} (the full range controls $D$, the z-passing range gives
 $P \ge \mu p_z - \text{error}$ with $p_z \approx 0.54, 0.62, 0.66$ the z pass probability) and
@@ -518,7 +521,7 @@ truth is about $q^{-r}$ ($q \approx 2^{23}$). Section \lean{PackingPart} proves
 \item Pigeonhole on $[0,B]^n$ gives a nonzero $v$ with $|v_s| \le B$ and $\hat v|_S = 0$.
 \item The multiples of $v$ in $R = \Z[X]/(X^n+1)$ keep $\hat{\ }|_S = 0$. Since $X^{256}+1$ is the
   $512$-th cyclotomic polynomial, it is irreducible over $\mathbb Q$, so multiplication by $v$ is
-  invertible over $\mathbb Q$ (section \lean{NcInvPart}, \lean{ncMat\_det\_ne\_zero}).
+  invertible over $\mathbb Q$ (section \lean{NcInvPart}, \lean{negacyclic\_det\_ne\_zero}).
   Every integer $x$ is then $x = v\cdot\lfloor v^{-1}x\rfloor + \mathrm{red}(x)$ with
   $|\mathrm{red}(x)_s| \le nB$ and the same values on $S$.
 \item Reducing the $q^{|S|}$ vectors of $[0,q)^{|S|}\times 0$ (distinct on $S$ by the window
@@ -684,7 +687,7 @@ Section & Contents\\
  & alt-r0 output law and distance (\lean{AltR0Set}); toy counterexamples (\lean{Toy})\\
 \lean{AltR0Part} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_rel}\\
 \lean{PackingPart} & a slot condition costs $1/q$ (\lean{card\_coset\_le})\\
-\lean{NcInvPart} & $X^{256}+1$ irreducible, so \lean{ncMat\_det\_ne\_zero}\\
+\lean{NcInvPart} & $X^{256}+1$ irreducible, so \lean{negacyclic\_det\_ne\_zero}\\
 \lean{AltR0ExcPart} & probability of exceptional slots (\lean{prob\_deg\_exc})\\
 \lean{AltR0QPart} & degenerate-slot probabilities with $1/q$ (\lean{prob\_deg\_ge\_q}, \dots)\\
 \lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le},

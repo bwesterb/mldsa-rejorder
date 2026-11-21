@@ -2484,20 +2484,16 @@ noncomputable section
 
 namespace Packing
 
-/-- The negacyclic matrix over any ring. -/
-def ncMat {R : Type*} [Ring R] {n : ℕ} (a : Fin n → R) : Matrix (Fin n) (Fin n) R :=
-  fun s t => if t ≤ s then a (s - t) else -a (s - t)
-
-lemma ncMat_map {R S : Type*} [Ring R] [Ring S] {n : ℕ} (f : R →+* S) (a : Fin n → R) :
-    (ncMat a).map f = ncMat (f ∘ a) := by
+lemma negacyclic_map {R S : Type*} [Ring R] [Ring S] {n : ℕ} (f : R →+* S) (a : Fin n → R) :
+    (negacyclic a).map f = negacyclic (f ∘ a) := by
   ext s t
-  simp only [Matrix.map_apply, ncMat, Function.comp]
+  simp only [Matrix.map_apply, negacyclic, Function.comp]
   split_ifs <;> simp
 
 lemma cast_mulVec {R : Type*} [Ring R] {n : ℕ} (a t : Fin n → ℤ) (s : Fin n) :
-    (((ncMat a *ᵥ t) s : ℤ) : R) = (ncMat (fun i => (a i : R)) *ᵥ fun i => (t i : R)) s := by
-  have := RingHom.map_mulVec (Int.castRingHom R) (ncMat a) t s
-  rw [ncMat_map] at this
+    (((negacyclic a *ᵥ t) s : ℤ) : R) = (negacyclic (fun i => (a i : R)) *ᵥ fun i => (t i : R)) s := by
+  have := RingHom.map_mulVec (Int.castRingHom R) (negacyclic a) t s
+  rw [negacyclic_map] at this
   simpa [Function.comp_def] using this
 
 set_option linter.unusedSectionVars false
@@ -2516,36 +2512,36 @@ lemma N_sub (ζ : Fin n → ZMod q) (x y : Fin n → ℤ) (k : Fin n) :
     N ζ (x - y) k = N ζ x k - N ζ y k := by
   simp only [N, nttP, Pi.sub_apply, Int.cast_sub, mul_sub, sum_sub_distrib]
 
-lemma N_ideal {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (v t : Fin n → ℤ) (k : Fin n) : N ζ (ncMat v *ᵥ t) k = N ζ v k * N ζ t k := by
-  have e : (fun s => (((ncMat v *ᵥ t) s : ℤ) : ZMod q))
+lemma N_ideal {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (v t : Fin n → ℤ) (k : Fin n) : N ζ (negacyclic v *ᵥ t) k = N ζ v k * N ζ t k := by
+  have e : (fun s => (((negacyclic v *ᵥ t) s : ℤ) : ZMod q))
       = negacyclic (fun i => (v i : ZMod q)) *ᵥ fun i => (t i : ZMod q) := by
-    funext s; rw [cast_mulVec]; rfl
+    funext s; rw [cast_mulVec]
   simp only [N]
   rw [e]
   exact h.mul _ _ _
 
-/-- Rows of `ncMat` applied to a vector with entries in `[0,1)` are bounded by `n·B`. -/
+/-- Rows of `negacyclic` applied to a vector with entries in `[0,1)` are bounded by `n·B`. -/
 lemma abs_mulVec_le {n : ℕ} (v : Fin n → ℤ) (B : ℕ) (hv : ∀ i, |v i| ≤ B) (u : Fin n → ℚ)
     (hu0 : ∀ j, 0 ≤ u j) (hu1 : ∀ j, u j < 1) (i : Fin n) :
-    |(ncMat (fun i => (v i : ℚ)) *ᵥ u) i| ≤ n * B := by
+    |(negacyclic (fun i => (v i : ℚ)) *ᵥ u) i| ≤ n * B := by
   simp only [Matrix.mulVec, dotProduct]
   refine (abs_sum_le_sum_abs _ _).trans ?_
   have : ∀ j ∈ (univ : Finset (Fin n)),
-      |ncMat (fun i => (v i : ℚ)) i j * u j| ≤ (B : ℚ) := by
+      |negacyclic (fun i => (v i : ℚ)) i j * u j| ≤ (B : ℚ) := by
     intro j _
     rw [abs_mul, abs_of_nonneg (hu0 j)]
-    have hm : |ncMat (fun i => (v i : ℚ)) i j| ≤ B := by
+    have hm : |negacyclic (fun i => (v i : ℚ)) i j| ≤ B := by
       have hb : |(v (i - j) : ℚ)| ≤ B := by exact_mod_cast hv (i - j)
-      simp only [ncMat]; split_ifs <;> simpa using hb
-    calc |ncMat (fun i => (v i : ℚ)) i j| * u j ≤ B * 1 :=
+      simp only [negacyclic]; split_ifs <;> simpa using hb
+    calc |negacyclic (fun i => (v i : ℚ)) i j| * u j ≤ B * 1 :=
           mul_le_mul hm (hu1 j).le (hu0 j) (by positivity)
       _ = B := mul_one _
   refine (sum_le_sum this).trans (le_of_eq ?_)
   simp
 
-theorem card_coset_le {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (ncMat (fun i => (v i : ℚ))).det ≠ 0)
+theorem card_coset_le {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (S : Finset (Fin n)) (τ : Fin n → ZMod q) (B : ℕ)
     (hB : q ^ S.card < (B + 1) ^ n) :
     ((hbox lo w).filter fun f => ∀ k ∈ S, nttP ζ (fun s => (f s : ZMod q)) k = τ k).card
@@ -2567,10 +2563,10 @@ theorem card_coset_le {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q :=
     · rw [N_sub, sub_eq_zero]
       exact congrFun he ⟨k, hk⟩
   -- Step 3: reduction.
-  set M := ncMat (fun i => (v i : ℚ)) with hM
+  set M := negacyclic (fun i => (v i : ℚ)) with hM
   have hdet : IsUnit M.det := (hinv v hv0).isUnit
   let fl : (Fin n → ℤ) → Fin n → ℤ := fun x j => ⌊(M⁻¹ *ᵥ fun i => (x i : ℚ)) j⌋
-  let red : (Fin n → ℤ) → Fin n → ℤ := fun x => x - ncMat v *ᵥ fl x
+  let red : (Fin n → ℤ) → Fin n → ℤ := fun x => x - negacyclic v *ᵥ fl x
   have hredN : ∀ x, ∀ k ∈ S, N ζ (red x) k = N ζ x k := by
     intro x k hk
     simp only [red]
@@ -2660,36 +2656,27 @@ end PackingPart
 
 section NcInvPart
 
-open Polynomial Matrix
+open Polynomial Matrix RejOrder
 
 namespace Packing
 
 
-/-- Column `t` of `ncMat a`, read in the powers of `r` with `r ^ n = -1`, is `A * r ^ t`. -/
-lemma ncMat_col_sum {L : Type*} [CommRing L] {n : ℕ} [NeZero n] (r : L) (hr : r ^ n = -1)
+/-- Column `t` of `negacyclic a`, read in the powers of `r` with `r ^ n = -1`, is `A * r ^ t`. -/
+lemma negacyclic_col_sum {L : Type*} [CommRing L] {n : ℕ} [NeZero n] (r : L) (hr : r ^ n = -1)
     (a : Fin n → L) (t : Fin n) :
-    ∑ s, ncMat a s t * r ^ (s : ℕ) = (∑ k, a k * r ^ (k : ℕ)) * r ^ (t : ℕ) := by
-  rw [Finset.sum_mul, ← Equiv.sum_comp (Equiv.addRight t)]
-  refine Finset.sum_congr rfl fun k _ => ?_
-  simp only [Equiv.coe_addRight, ncMat, add_sub_cancel_right]
-  rw [mul_assoc, ← pow_add]
-  rcases lt_or_ge ((k : ℕ) + t) n with h | h
-  · have hv : ((k + t : Fin n) : ℕ) = k + t := by rw [Fin.val_add, Nat.mod_eq_of_lt h]
-    have : t ≤ k + t := by rw [Fin.le_iff_val_le_val, hv]; omega
-    simp only [this, ↓reduceIte, hv]
-  · have hv : ((k + t : Fin n) : ℕ) = k + t - n := by
-      rw [Fin.val_add, Nat.mod_eq_sub_mod h, Nat.mod_eq_of_lt (by omega)]
-    have : ¬ t ≤ k + t := by rw [Fin.le_iff_val_le_val, hv]; omega
-    simp only [this, ↓reduceIte, hv]
-    obtain ⟨m, hm⟩ : ∃ m, (k : ℕ) + t = n + m := ⟨_, (Nat.add_sub_cancel' h).symm⟩
-    rw [hm, Nat.add_sub_cancel_left, pow_add, hr]; ring
+    ∑ s, negacyclic a s t * r ^ (s : ℕ) = (∑ k, a k * r ^ (k : ℕ)) * r ^ (t : ℕ) := by
+  calc ∑ s, negacyclic a s t * r ^ (s : ℕ) = ∑ s : Fin n, r ^ (s : ℕ) * negacyclic a s t :=
+        Finset.sum_congr rfl fun _ _ => mul_comm _ _
+    _ = _ := by
+        rw [negacyclic_col r hr, Finset.sum_mul]
+        exact Finset.sum_congr rfl fun _ _ => by rw [pow_add, mul_assoc]
 
 /-- General criterion: if `r ^ n = -1` in a domain and `1, r, …, r^(n-1)` are independent,
-then `ncMat a` is nonsingular for every nonzero `a`. -/
-theorem ncMat_det_ne_zero_of {K L : Type*} [Field K] [CommRing L] [IsDomain L] [Algebra K L]
+then `negacyclic a` is nonsingular for every nonzero `a`. -/
+theorem negacyclic_det_ne_zero_of {K L : Type*} [Field K] [CommRing L] [IsDomain L] [Algebra K L]
     {n : ℕ} [NeZero n] (r : L) (hr : r ^ n = -1)
     (hli : LinearIndependent K (fun i : Fin n => r ^ (i : ℕ)))
-    (a : Fin n → K) (ha : a ≠ 0) : (ncMat a).det ≠ 0 := by
+    (a : Fin n → K) (ha : a ≠ 0) : (negacyclic a).det ≠ 0 := by
   intro hdet
   obtain ⟨x, hx0, hx⟩ := Matrix.exists_mulVec_eq_zero_iff.mpr hdet
   have hA : (∑ k, a k • r ^ (k : ℕ)) ≠ 0 := by
@@ -2699,20 +2686,20 @@ theorem ncMat_det_ne_zero_of {K L : Type*} [Field K] [CommRing L] [IsDomain L] [
     intro h
     exact hx0 (funext fun i => Fintype.linearIndependent_iff.mp hli x h i)
   apply mul_ne_zero hA hX
-  have key : ∀ t : Fin n, ∑ s, algebraMap K L (ncMat a s t) * r ^ (s : ℕ)
+  have key : ∀ t : Fin n, ∑ s, algebraMap K L (negacyclic a s t) * r ^ (s : ℕ)
       = (∑ k, a k • r ^ (k : ℕ)) * r ^ (t : ℕ) := by
     intro t
-    have := ncMat_col_sum r hr (fun i => algebraMap K L (a i)) t
+    have := negacyclic_col_sum r hr (fun i => algebraMap K L (a i)) t
     simp only [Algebra.smul_def]
     rw [← this]
     refine Finset.sum_congr rfl fun s _ => ?_
-    simp only [ncMat]; split_ifs <;> simp
+    simp only [negacyclic]; split_ifs <;> simp
   calc (∑ k, a k • r ^ (k : ℕ)) * ∑ t, x t • r ^ (t : ℕ)
-      = ∑ t, x t • ∑ s, algebraMap K L (ncMat a s t) * r ^ (s : ℕ) := by
+      = ∑ t, x t • ∑ s, algebraMap K L (negacyclic a s t) * r ^ (s : ℕ) := by
         rw [Finset.mul_sum]
         refine Finset.sum_congr rfl fun t _ => ?_
         rw [key, mul_smul_comm]
-    _ = ∑ s, (ncMat a *ᵥ x) s • r ^ (s : ℕ) := by
+    _ = ∑ s, (negacyclic a *ᵥ x) s • r ^ (s : ℕ) := by
         simp only [Finset.smul_sum, Matrix.mulVec, dotProduct, Finset.sum_smul]
         rw [Finset.sum_comm]
         refine Finset.sum_congr rfl fun s _ => Finset.sum_congr rfl fun t _ => ?_
@@ -2724,9 +2711,9 @@ lemma X_pow_two_pow_add_one_eq_cyclotomic (k : ℕ) :
   rw [cyclotomic_prime_pow_eq_geom_sum Nat.prime_two]
   simp [Finset.sum_range_succ, add_comm]
 
-/-- For `n = 2 ^ k`, `ncMat a` over ℚ is nonsingular for every nonzero `a`. -/
-theorem ncMat_det_ne_zero_two_pow (k : ℕ) (a : Fin (2 ^ k) → ℚ) (ha : a ≠ 0) :
-    (ncMat a).det ≠ 0 := by
+/-- For `n = 2 ^ k`, `negacyclic a` over ℚ is nonsingular for every nonzero `a`. -/
+theorem negacyclic_det_ne_zero_two_pow (k : ℕ) (a : Fin (2 ^ k) → ℚ) (ha : a ≠ 0) :
+    (negacyclic a).det ≠ 0 := by
   obtain ⟨f, hf⟩ : ∃ f : ℚ[X], f = X ^ (2 ^ k) + 1 := ⟨_, rfl⟩
   have hirr : Irreducible f := by
     rw [hf, X_pow_two_pow_add_one_eq_cyclotomic]
@@ -2748,11 +2735,11 @@ theorem ncMat_det_ne_zero_two_pow (k : ℕ) (a : Fin (2 ^ k) → ℚ) (ha : a �
   subst hm
   intro hli
   have : Fact (Irreducible f) := ⟨hirr⟩
-  exact ncMat_det_ne_zero_of (AdjoinRoot.root f) hr hli a ha
+  exact negacyclic_det_ne_zero_of (AdjoinRoot.root f) hr hli a ha
 
-theorem ncMat_det_ne_zero (v : Fin 256 → ℤ) (hv : v ≠ 0) :
-    (ncMat (fun i => (v i : ℚ))).det ≠ 0 := by
-  have h := ncMat_det_ne_zero_two_pow 8 (fun i => (v i : ℚ)) (by
+theorem negacyclic_det_ne_zero (v : Fin 256 → ℤ) (hv : v ≠ 0) :
+    (negacyclic (fun i => (v i : ℚ))).det ≠ 0 := by
+  have h := negacyclic_det_ne_zero_two_pow 8 (fun i => (v i : ℚ)) (by
     intro h; apply hv; funext i; simpa using congrFun h i)
   exact h
 
@@ -3049,8 +3036,8 @@ lemma qpow_lt_of_le {B a b : ℕ} (hab : a ≤ b) (hb : q ^ b < (B + 1) ^ n) :
   lt_of_le_of_lt (Nat.pow_le_pow_right (Nat.pos_of_ne_zero (NeZero.ne q)) hab) hb
 
 /-- Rational form of `Packing.card_coset_le`. -/
-lemma card_coset_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma card_coset_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (S : Finset (Fin n)) (τ : Fin n → ZMod q) (B : ℕ)
     (hB : q ^ S.card < (B + 1) ^ n) :
     (((hbox lo w).filter fun f => ∀ k ∈ S, nttP ζ (fun s => (f s : ZMod q)) k = τ k).card : ℚ)
@@ -3063,8 +3050,8 @@ lemma card_coset_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q)
   exact_mod_cast hc
 
 /-- Head pairs whose difference has vanishing NTT on `D`, packing version. -/
-lemma card_head_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma card_head_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (D : Finset (Fin n)) (B : ℕ) (hB : q ^ D.card < (B + 1) ^ n) :
     (((hbox lo w ×ˢ hbox lo w).filter fun ff =>
         ∀ k ∈ D, nttP ζ (fun s => ((ff.1 s - ff.2 s : ℤ) : ZMod q)) k = 0).card : ℚ)
@@ -3088,8 +3075,8 @@ lemma card_head_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) 
 
 /-- Head pairs with `y₁` vanishing on `X₁`, `y₁'` vanishing on `X₂` and the difference
 vanishing on `D`, packing version. -/
-lemma card_head2_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma card_head2_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (X₁ X₂ D : Finset (Fin n)) (B : ℕ)
     (hB1 : q ^ X₁.card < (B + 1) ^ n) (hB2 : q ^ (X₂ ∪ D).card < (B + 1) ^ n) :
     (((hbox lo w ×ˢ hbox lo w).filter fun ff =>
@@ -3128,8 +3115,8 @@ lemma card_head2_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q)
 
 /-- **A given set of slots is degenerate** with probability at most `cst · p^|Z|`,
 `p = 1/q + (2γ₁)^{-(L-1)}`, `cst = (w + 2nB)^n / w^n`. -/
-lemma prob_Z_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma prob_Z_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
     (h₀ : Fin L) (B : ℕ) (Z : Finset (Fin n)) (hZ : q ^ Z.card < (B + 1) ^ n) :
     prob (trip lo w γ₁ h₀) (fun x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2))
@@ -3189,8 +3176,8 @@ lemma prob_Z_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n 
   ring
 
 /-- **`d` degenerate slots** occur with probability at most `cst · C(n,d) · p^d`. -/
-lemma prob_deg_ge_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma prob_deg_ge_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
     (h₀ : Fin L) (B : ℕ) (d : ℕ) (hd : q ^ d < (B + 1) ^ n) :
     prob (trip lo w γ₁ h₀) (fun x => d ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card)
@@ -3208,8 +3195,8 @@ lemma prob_deg_ge_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q
 
 /-- **A given set of slots is degenerate and contains an exceptional slot** with probability at
 most `cst² · ((p + e)^|Z| - p^|Z|)`, `p = 1/q + (2γ₁)^{-(L-1)}`, `e = 2 / (q (2γ₁)^(L-1))`. -/
-lemma prob_Z_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+lemma prob_Z_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
     (h₀ : Fin L) (B : ℕ) (Z : Finset (Fin n)) (hZ : q ^ Z.card < (B + 1) ^ n) :
     prob (trip lo w γ₁ h₀) (fun x => Z ⊆ degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2) ∧
@@ -3344,8 +3331,8 @@ lemma prob_Z_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q)
 
 /-- **`d` degenerate slots, one of them exceptional,** occur with probability at most
 `cst² · C(n,d) · ((p + e)^d - p^d)`. -/
-theorem prob_deg_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (q := q) (n := n)))
-    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (Packing.ncMat (fun i => (v i : ℚ))).det ≠ 0)
+theorem prob_deg_exc_q {ζ : Fin n → ZMod q} (h : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)))
+    (hinv : ∀ v : Fin n → ℤ, v ≠ 0 → (negacyclic (fun i => (v i : ℚ))).det ≠ 0)
     {lo : Fin n → ℤ} {w : ℕ} (hw0 : 0 < w) {γ₁ : ℕ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
     (h₀ : Fin L) (B : ℕ) (d : ℕ) (hd1 : 1 ≤ d) (hd : q ^ d < (B + 1) ^ n) :
     prob (trip lo w γ₁ h₀) (fun x => d ≤ (degS ζ (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card ∧
@@ -4352,7 +4339,7 @@ theorem num_44_z : 2 ^ (2 * 147) * numL2 330 8380417 256 4 (8380417 - 44 * (2 * 
 theorem dev_mldsa44_sharp {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
     avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 17) h₀, |rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 17) h₀, |rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 95232 78 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417|)
           / (tbox (n := 256) (2 ^ 17) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) / 2 ^ 147 := by
@@ -4382,7 +4369,7 @@ theorem num_65_z : 2 ^ (2 * 182) * numL2 330 8380417 256 6 (8380417 - 16 * (2 * 
 theorem dev_mldsa65_sharp {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
     avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, |rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, |rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 196 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417|)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) / 2 ^ 182 := by
@@ -4412,7 +4399,7 @@ theorem num_87_z : 2 ^ (2 * 190) * numL2 330 8380417 256 8 (8380417 - 16 * (2 * 
 theorem dev_mldsa87_sharp {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
     avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, |rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, |rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 120 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417|)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) / 2 ^ 190 := by
@@ -4428,7 +4415,7 @@ theorem dev_mldsa87_sharp {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo :
 theorem var_mldsa44_sharp {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
     avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 95232 78 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 17) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 147) := by
@@ -4444,7 +4431,7 @@ theorem var_mldsa44_sharp {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : 
 theorem var_mldsa65_sharp {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
     avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 196 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 182) := by
@@ -4460,7 +4447,7 @@ theorem var_mldsa65_sharp {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo :
 theorem var_mldsa87_sharp {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
     avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 120 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ (2 * 190) := by
@@ -4708,7 +4695,7 @@ open Classical in
 theorem var_mldsa44_q {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
     avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 95232 78 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 17) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 382 := by
@@ -4728,11 +4715,11 @@ theorem var_mldsa44_q {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 
       (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_44_full
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 17) (w := 2 * 2 ^ 17)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
         (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
@@ -4748,11 +4735,11 @@ theorem var_mldsa44_q {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 
       (8380417 * (2 * 2 ^ 17) ^ (4 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_44_z
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 17)
         (w := 2 * (2 ^ 17 - 78) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 17)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 17)
         (w := 2 * (2 ^ 17 - 78) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
         (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
@@ -4770,7 +4757,7 @@ open Classical in
 theorem var_mldsa65_q {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
     avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 196 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 420 := by
@@ -4790,11 +4777,11 @@ theorem var_mldsa65_q {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin
       (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_65_full
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
         (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
@@ -4810,11 +4797,11 @@ theorem var_mldsa65_q {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin
       (8380417 * (2 * 2 ^ 19) ^ (5 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_65_z
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19)
         (w := 2 * (2 ^ 19 - 196) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19)
         (w := 2 * (2 ^ 19 - 196) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
         (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
@@ -4832,7 +4819,7 @@ open Classical in
 theorem var_mldsa87_q {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
     avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 120 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 472 := by
@@ -4852,11 +4839,11 @@ theorem var_mldsa87_q {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin
       (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_87_full
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19) (w := 2 * 2 ^ 19)
         (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1 (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
         (P := fun x => e' ≤ (degS zetaMLDSA (join h₀ x.1.1 x.2) (join h₀ x.1.2 x.2)).card
@@ -4872,11 +4859,11 @@ theorem var_mldsa87_q {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin
       (8380417 * (2 * 2 ^ 19) ^ (7 - 1)) (pow_pos (by norm_num) _) (Nat.mul_pos (by norm_num) (pow_pos (by norm_num) _))
       (Nat.le_add_right _ _) ?_ ?_ numQ_87_z
     · intro e' he'
-      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+      have := prob_deg_ge_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19)
         (w := 2 * (2 ^ 19 - 120) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' (hq e' (by omega))
       rw [hp]; convert this using 2; push_cast; norm_num
     · intro e' he1 he'
-      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.ncMat_det_ne_zero (γ₁ := 2 ^ 19)
+      have := prob_deg_exc_q (lo := lo) isNTTMul_mldsa Packing.negacyclic_det_ne_zero (γ₁ := 2 ^ 19)
         (w := 2 * (2 ^ 19 - 120) - 1) (by norm_num) (by norm_num) (by norm_num) h₀ 5 e' he1
         (hq e' (by omega))
       have h2 := (prob_mono (trip lo _ _ h₀)
@@ -5026,7 +5013,7 @@ one, so the ring statement is their only ML-DSA-specific input. -/
 theorem var_mldsa44_ring {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
     avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 95232 78 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 17) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 382 := by
@@ -5046,7 +5033,7 @@ one, so the ring statement is their only ML-DSA-specific input. -/
 theorem var_mldsa65_ring {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
     avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 196 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 420 := by
@@ -5066,7 +5053,7 @@ one, so the ring statement is their only ML-DSA-specific input. -/
 theorem var_mldsa87_ring {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
     (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
     avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
-        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (R := ZMod 8380417) (n := 256)) 261888 120 v lo w h₀ a t
           - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
           / (tbox (n := 256) (2 ^ 19) h₀).card)
       ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 472 := by
@@ -5957,6 +5944,32 @@ theorem main2 [Nonempty C] [Nonempty (V γ₁ n)]
 
 end General
 
+/-! ## The r₀ check over `R_q` -/
+
+/-- The r₀ check for `A ∈ R_q^{K×L}`: `‖LowBits(A·y − c·s₂)‖∞ < γ₂ − β`, with `v c = c·s₂` and
+`ringMat A` the matrix of `y ↦ A·y` on coefficient vectors. The headlines are stated with it. -/
+def r0R {C : Type*} {K L : ℕ} (γ₁ γ₂ β : ℕ) (v : C → Fin (K * 256) → ℤ)
+    (A : Matrix (Fin K) (Fin L) Rq) (y : Fin L → V γ₁ 256) (c : C) : Bool :=
+  decide (ringMat A *ᵥ zc (flat γ₁ y) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c)))
+
+lemma r0_coeffsOf {C : Type*} {K L : ℕ} (γ₁ γ₂ β : ℕ) (v : C → Fin (K * 256) → ℤ)
+    (A : Matrix (Fin K) (Fin L) Rq) :
+    r0 negacyclic γ₁ γ₂ β v (coeffsOf A) = r0R γ₁ γ₂ β v A := by
+  funext y c
+  simp only [r0, r0R, modMat_coeffsOf]
+
+/-- The bad matrices over `R_q` (mean deviation form): `Bad` for the coefficients of `A`. -/
+abbrev BadR {C : Type*} [Fintype C] {K L : ℕ} (γ₁ γ₂ β mb : ℕ) (u : C → Fin (L * 256) → ℤ)
+    (v : C → Fin (K * 256) → ℤ) (h₀ : Fin L) (ε : ℚ) (A : Matrix (Fin K) (Fin L) Rq) : Prop :=
+  Bad negacyclic γ₁ γ₂ β mb u v h₀ ε (coeffsOf A)
+
+/-- The bad matrices over `R_q` (mean square form): those for which the mean squared deviation
+of the r₀ pass probability from `μ`, over the tail and the challenge, is at least `(μ ε)²`, for
+the full head box or the z-passing one. This is `Bad2` for the coefficients of `A`. -/
+abbrev Bad2R {C : Type*} [Fintype C] {K L : ℕ} (γ₁ γ₂ β mb : ℕ) (u : C → Fin (L * 256) → ℤ)
+    (v : C → Fin (K * 256) → ℤ) (h₀ : Fin L) (ε : ℚ) (A : Matrix (Fin K) (Fin L) Rq) : Prop :=
+  Bad2 negacyclic γ₁ γ₂ β mb u v h₀ ε (coeffsOf A)
+
 /-! ## ML-DSA-44 -/
 
 section MLDSA44
@@ -5968,7 +5981,7 @@ lemma mu_eq_44 {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) :
 
 lemma avg_X_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) → ℤ)
     (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
-    avg (fun a => X (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
+    avg (fun a => X (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
       mu 8380417 95232 78 44 4 256 * (1 / 2 ^ 147) := by
   apply avg_X_le
   intro c
@@ -5979,7 +5992,7 @@ lemma avg_X_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) →
 
 lemma avg_Xz_44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
-    avg (fun a => Xz (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
+    avg (fun a => Xz (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
       mu 8380417 95232 78 44 4 256 * (1 / 2 ^ 147) := by
   apply avg_Xz_le
   intro c
@@ -6003,23 +6016,26 @@ every other `A` with `2ε < p_z`, alt-r0's output law is within `2ε / (p_z − 
 theorem altR0_mldsa44_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
     (h₀ : Fin 4) {ε : ℚ} (hε : 0 < ε) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ ε)).card
-        : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417) ≤ 2 * (1 / 2 ^ 147) / ε ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ ε a →
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        BadR (2 ^ 17) 95232 78 44 u v h₀ ε A).card : ℚ) / Fintype.card (Matrix (Fin 4) (Fin 4) Rq) ≤ 2 * (1 / 2 ^ 147) / ε ∧
+      ∀ A, ¬ BadR (2 ^ 17) 95232 78 44 u v h₀ ε A →
         2 * ε < pz (2 ^ 17) 78 4 256 →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 17) 95232 78 v A y c &&
               zok (2 ^ 17) 78 u y c) x| ≤
           2 * ε / (pz (2 ^ 17) 78 4 256 - 2 * ε) ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u) x ≤
-          ε / (pz (2 ^ 17) 78 4 256 - 2 * ε) :=
-  main negacyclic params_mldsa44 u v hu h₀ hε (avg_X_44 v hv h₀) (avg_Xz_44 u v hv h₀)
+          ε / (pz (2 ^ 17) 78 4 256 - 2 * ε) := by
+  obtain ⟨h1, h2⟩ := main negacyclic params_mldsa44 u v hu h₀ hε (avg_X_44 v hv h₀) (avg_Xz_44 u v hv h₀)
+  refine ⟨(frac_ring _).trans_le h1, fun A => ?_⟩
+  simp only [← r0_coeffsOf]
+  exact h2 (coeffsOf A)
 
 lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) → ℤ)
     (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
-    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
+    avg (fun a => X2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 17) 95232 78 44 v h₀ a) ≤
       mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_X2_le
   intro c
@@ -6030,7 +6046,7 @@ lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) �
 
 lemma avg_Xz2_44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hv : ∀ c, Bounded 78 (v c)) (h₀ : Fin 4) :
-    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
+    avg (fun a => Xz2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ a) ≤
       mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_Xz2_le
   intro c
@@ -6046,19 +6062,22 @@ within `2^-125` of vanilla's in `ℓ¹`, and fails to terminate with probability
 theorem altR0_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
     (h₀ : Fin 4) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        Bad2R (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) A).card : ℚ) / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
         ≤ 1 / 2 ^ 127 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) a →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+      ∀ A, ¬ Bad2R (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) A →
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 17) 95232 78 v A y c &&
               zok (2 ^ 17) 78 u y c) x| ≤ 1 / 2 ^ 125 ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u) x ≤ 1 / 2 ^ 126 := by
   obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 127) (by norm_num)
     (avg_X2_44 v hv h₀) (avg_Xz2_44 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha
   have hpz := pz_ge_44
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 2 * (1 / 2 ^ 127) := by
     have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 127) ≤ 27 / 50 := by norm_num
@@ -6081,7 +6100,7 @@ lemma mu_eq_65 {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) :
 
 lemma avg_X_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) → ℤ)
     (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
-    avg (fun a => X (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
+    avg (fun a => X (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
       mu 8380417 261888 196 16 6 256 * (1 / 2 ^ 182) := by
   apply avg_X_le
   intro c
@@ -6092,7 +6111,7 @@ lemma avg_X_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) →
 
 lemma avg_Xz_65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
-    avg (fun a => Xz (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
+    avg (fun a => Xz (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
       mu 8380417 261888 196 16 6 256 * (1 / 2 ^ 182) := by
   apply avg_Xz_le
   intro c
@@ -6116,23 +6135,26 @@ every other `A` with `2ε < p_z`, alt-r0's output law is within `2ε / (p_z − 
 theorem altR0_mldsa65_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
     (h₀ : Fin 5) {ε : ℚ} (hε : 0 < ε) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ ε)).card
-        : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417) ≤ 2 * (1 / 2 ^ 182) / ε ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ ε a →
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        BadR (2 ^ 19) 261888 196 16 u v h₀ ε A).card : ℚ) / Fintype.card (Matrix (Fin 6) (Fin 5) Rq) ≤ 2 * (1 / 2 ^ 182) / ε ∧
+      ∀ A, ¬ BadR (2 ^ 19) 261888 196 16 u v h₀ ε A →
         2 * ε < pz (2 ^ 19) 196 5 256 →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 19) 261888 196 v A y c &&
               zok (2 ^ 19) 196 u y c) x| ≤
           2 * ε / (pz (2 ^ 19) 196 5 256 - 2 * ε) ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u) x ≤
-          ε / (pz (2 ^ 19) 196 5 256 - 2 * ε) :=
-  main negacyclic params_mldsa65 u v hu h₀ hε (avg_X_65 v hv h₀) (avg_Xz_65 u v hv h₀)
+          ε / (pz (2 ^ 19) 196 5 256 - 2 * ε) := by
+  obtain ⟨h1, h2⟩ := main negacyclic params_mldsa65 u v hu h₀ hε (avg_X_65 v hv h₀) (avg_Xz_65 u v hv h₀)
+  refine ⟨(frac_ring _).trans_le h1, fun A => ?_⟩
+  simp only [← r0_coeffsOf]
+  exact h2 (coeffsOf A)
 
 lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) → ℤ)
     (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
-    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
+    avg (fun a => X2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 196 16 v h₀ a) ≤
       mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_X2_le
   intro c
@@ -6143,7 +6165,7 @@ lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) �
 
 lemma avg_Xz2_65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hv : ∀ c, Bounded 196 (v c)) (h₀ : Fin 5) :
-    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
+    avg (fun a => Xz2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ a) ≤
       mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_Xz2_le
   intro c
@@ -6159,19 +6181,22 @@ within `2^-138` of vanilla's in `ℓ¹`, and fails to terminate with probability
 theorem altR0_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
     (h₀ : Fin 5) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        Bad2R (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) A).card : ℚ) / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
         ≤ 1 / 2 ^ 139 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) a →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) A →
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 19) 261888 196 v A y c &&
               zok (2 ^ 19) 196 u y c) x| ≤ 1 / 2 ^ 138 ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u) x ≤ 1 / 2 ^ 139 := by
   obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 140) (by norm_num)
     (avg_X2_65 v hv h₀) (avg_Xz2_65 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha
   have hpz := pz_ge_65
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 2 * (1 / 2 ^ 140) := by
     have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 140) ≤ 3 / 5 := by norm_num
@@ -6194,7 +6219,7 @@ lemma mu_eq_87 {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) :
 
 lemma avg_X_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) → ℤ)
     (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
-    avg (fun a => X (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
+    avg (fun a => X (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
       mu 8380417 261888 120 16 8 256 * (1 / 2 ^ 190) := by
   apply avg_X_le
   intro c
@@ -6205,7 +6230,7 @@ lemma avg_X_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) →
 
 lemma avg_Xz_87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
-    avg (fun a => Xz (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
+    avg (fun a => Xz (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
       mu 8380417 261888 120 16 8 256 * (1 / 2 ^ 190) := by
   apply avg_Xz_le
   intro c
@@ -6229,23 +6254,26 @@ every other `A` with `2ε < p_z`, alt-r0's output law is within `2ε / (p_z − 
 theorem altR0_mldsa87_eps {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
     (h₀ : Fin 7) {ε : ℚ} (hε : 0 < ε) :
-    ((univ.filter (Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ ε)).card
-        : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417) ≤ 2 * (1 / 2 ^ 190) / ε ∧
-      ∀ a, ¬ Bad (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ ε a →
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        BadR (2 ^ 19) 261888 120 16 u v h₀ ε A).card : ℚ) / Fintype.card (Matrix (Fin 8) (Fin 7) Rq) ≤ 2 * (1 / 2 ^ 190) / ε ∧
+      ∀ A, ¬ BadR (2 ^ 19) 261888 120 16 u v h₀ ε A →
         2 * ε < pz (2 ^ 19) 120 7 256 →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 19) 261888 120 v A y c &&
               zok (2 ^ 19) 120 u y c) x| ≤
           2 * ε / (pz (2 ^ 19) 120 7 256 - 2 * ε) ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u) x ≤
-          ε / (pz (2 ^ 19) 120 7 256 - 2 * ε) :=
-  main negacyclic params_mldsa87 u v hu h₀ hε (avg_X_87 v hv h₀) (avg_Xz_87 u v hv h₀)
+          ε / (pz (2 ^ 19) 120 7 256 - 2 * ε) := by
+  obtain ⟨h1, h2⟩ := main negacyclic params_mldsa87 u v hu h₀ hε (avg_X_87 v hv h₀) (avg_Xz_87 u v hv h₀)
+  refine ⟨(frac_ring _).trans_le h1, fun A => ?_⟩
+  simp only [← r0_coeffsOf]
+  exact h2 (coeffsOf A)
 
 lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) → ℤ)
     (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
-    avg (fun a => X2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
+    avg (fun a => X2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 120 16 v h₀ a) ≤
       mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_X2_le
   intro c
@@ -6256,7 +6284,7 @@ lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) �
 
 lemma avg_Xz2_87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hv : ∀ c, Bounded 120 (v c)) (h₀ : Fin 7) :
-    avg (fun a => Xz2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
+    avg (fun a => Xz2 (negacyclic (R := ZMod 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ a) ≤
       mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_Xz2_le
   intro c
@@ -6272,19 +6300,22 @@ within `2^-155` of vanilla's in `ℓ¹`, and fails to terminate with probability
 theorem altR0_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
     (h₀ : Fin 7) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        Bad2R (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) A).card : ℚ) / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
         ≤ 1 / 2 ^ 157 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) a →
-        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) A →
+        ∑ x, |Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u) x -
-            Bathwater.AltR0Set.vanLaw (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+            Bathwater.AltR0Set.vanLaw (fun y c => r0R (2 ^ 19) 261888 120 v A y c &&
               zok (2 ^ 19) 120 u y c) x| ≤ 1 / 2 ^ 155 ∧
-        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+        1 - ∑ x, Bathwater.AltR0Set.altLaw {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u) x ≤ 1 / 2 ^ 156 := by
   obtain ⟨h1, h2⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 157) (by norm_num)
     (avg_X2_87 v hv h₀) (avg_Xz2_87 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha
   have hpz := pz_ge_87
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 2 * (1 / 2 ^ 157) := by
     have : (1 / 2 : ℚ) + 2 * (1 / 2 ^ 157) ≤ 3 / 5 := by norm_num
@@ -6621,51 +6652,59 @@ end Main
 
 section MLDSA
 
+/-- The bad matrices over `R_q`: every entry of column `h₀` vanishes at `d` or more of the
+`256` roots of `X^256 + 1`. -/
+abbrev BadMR {K L : ℕ} (h₀ : Fin L) (d : ℕ) (A : Matrix (Fin K) (Fin L) Rq) : Prop :=
+  BadM zetaMLDSA h₀ d (coeffsOf A)
+
 /-- **ML-DSA-44.** Outside a `2^-124` fraction of matrices, every attempt's commitment has
 guessing probability at most `2^-99` (with `d = 2`). With `d = 1` (some entry of column `h₀`
 invertible, as in the thesis) it is `2^-117` outside a `2^-59` fraction. -/
 theorem minEntropy_mldsa44 (h₀ : Fin 4) :
-    (((univ : Finset (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)).filter
-        (BadM zetaMLDSA h₀ 2)).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        BadMR h₀ 2 A).card : ℚ) / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
         ≤ 1 / 2 ^ 124 ∧
-      ∀ A, ¬ BadM zetaMLDSA h₀ 2 A → ∀ (t : Fin 4 → Fin 256 → ℤ) (W : Fin 4 → Fin 256 → ℕ),
+      ∀ A, ¬ BadMR h₀ 2 A → ∀ (t : Fin 4 → Fin 256 → ℤ) (W : Fin 4 → Fin 256 → ℕ),
         prob (RejOrder.box (2 ^ 17) 256) (fun y₁ => ∀ i s,
-          highBits 8380417 95232 44 ((modMat (negacyclic (q := 8380417) (n := 256)) A *ᵥ
+          highBits 8380417 95232 44 ((ringMat A *ᵥ
             zc (join h₀ y₁ t)) (finProdFinEquiv (i, s))) = W i s) ≤ 1 / 2 ^ 99 := by
-  refine ⟨(card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num), fun A hA t W => ?_⟩
-  refine (minEntropy params_mldsa44 isNTTMul_mldsa (by norm_num) h₀ 2 A hA t W).trans ?_
+  refine ⟨(frac_ring _).trans_le ((card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num)), fun A hA t W => ?_⟩
+  rw [← modMat_coeffsOf]
+  refine (minEntropy params_mldsa44 isNTTMul_mldsa (by norm_num) h₀ 2 (coeffsOf A) hA t W).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity)]
   norm_num
 
 /-- **ML-DSA-65.** Outside a `2^-186` fraction of matrices, every attempt's commitment has
 guessing probability at most `2^-236` (with `d = 2`). -/
 theorem minEntropy_mldsa65 (h₀ : Fin 5) :
-    (((univ : Finset (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)).filter
-        (BadM zetaMLDSA h₀ 2)).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        BadMR h₀ 2 A).card : ℚ) / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
         ≤ 1 / 2 ^ 186 ∧
-      ∀ A, ¬ BadM zetaMLDSA h₀ 2 A → ∀ (t : Fin 5 → Fin 256 → ℤ) (W : Fin 6 → Fin 256 → ℕ),
+      ∀ A, ¬ BadMR h₀ 2 A → ∀ (t : Fin 5 → Fin 256 → ℤ) (W : Fin 6 → Fin 256 → ℕ),
         prob (RejOrder.box (2 ^ 19) 256) (fun y₁ => ∀ i s,
-          highBits 8380417 261888 16 ((modMat (negacyclic (q := 8380417) (n := 256)) A *ᵥ
+          highBits 8380417 261888 16 ((ringMat A *ᵥ
             zc (join h₀ y₁ t)) (finProdFinEquiv (i, s))) = W i s) ≤ 1 / 2 ^ 236 := by
-  refine ⟨(card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num),
+  refine ⟨(frac_ring _).trans_le ((card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num)),
     fun A hA t W => ?_⟩
-  refine (minEntropy params_mldsa65 isNTTMul_mldsa (by norm_num) h₀ 2 A hA t W).trans ?_
+  rw [← modMat_coeffsOf]
+  refine (minEntropy params_mldsa65 isNTTMul_mldsa (by norm_num) h₀ 2 (coeffsOf A) hA t W).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity)]
   norm_num
 
 /-- **ML-DSA-87.** Outside a `2^-248` fraction of matrices, every attempt's commitment has
 guessing probability at most `2^-236` (with `d = 2`). -/
 theorem minEntropy_mldsa87 (h₀ : Fin 7) :
-    (((univ : Finset (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)).filter
-        (BadM zetaMLDSA h₀ 2)).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        BadMR h₀ 2 A).card : ℚ) / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
         ≤ 1 / 2 ^ 248 ∧
-      ∀ A, ¬ BadM zetaMLDSA h₀ 2 A → ∀ (t : Fin 7 → Fin 256 → ℤ) (W : Fin 8 → Fin 256 → ℕ),
+      ∀ A, ¬ BadMR h₀ 2 A → ∀ (t : Fin 7 → Fin 256 → ℤ) (W : Fin 8 → Fin 256 → ℕ),
         prob (RejOrder.box (2 ^ 19) 256) (fun y₁ => ∀ i s,
-          highBits 8380417 261888 16 ((modMat (negacyclic (q := 8380417) (n := 256)) A *ᵥ
+          highBits 8380417 261888 16 ((ringMat A *ᵥ
             zc (join h₀ y₁ t)) (finProdFinEquiv (i, s))) = W i s) ≤ 1 / 2 ^ 236 := by
-  refine ⟨(card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num),
+  refine ⟨(frac_ring _).trans_le ((card_bad_le zetaMLDSA_inj h₀ 2 (by norm_num)).trans (by rw [Nat.choose_two_right]; norm_num)),
     fun A hA t W => ?_⟩
-  refine (minEntropy params_mldsa87 isNTTMul_mldsa (by norm_num) h₀ 2 A hA t W).trans ?_
+  rw [← modMat_coeffsOf]
+  refine (minEntropy params_mldsa87 isNTTMul_mldsa (by norm_num) h₀ 2 (coeffsOf A) hA t W).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity)]
   norm_num
 
@@ -7278,21 +7317,23 @@ vanilla's in `ℓ¹`, and Algorithm 3 is still running after `k` attempts with p
 `(1 − μ/2)^k + 2^-123`. -/
 theorem alg3_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c)) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v 0
-        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        Bad2R (2 ^ 17) 95232 78 44 u v 0 (1 / 2 ^ 127) A).card : ℚ) / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
         ≤ 1 / 2 ^ 127 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v 0
-          (1 / 2 ^ 127) a → ∀ k : ℕ,
+      ∀ A, ¬ Bad2R (2 ^ 17) 95232 78 44 u v 0 (1 / 2 ^ 127) A → ∀ k : ℕ,
         ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 17) 78 u)
-              (r0 negacyclic (2 ^ 17) 95232 78 v a)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+              (r0R (2 ^ 17) 95232 78 v A)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 17) 95232 78 v A y c &&
               zok (2 ^ 17) 78 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 123) ∧
         ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 17) 78 u)
-              (r0 negacyclic (2 ^ 17) 95232 78 v a)).loop.state k y ≤
+              (r0R (2 ^ 17) 95232 78 v A)).loop.state k y ≤
           (1 - mu 8380417 95232 78 44 4 256 / 2) ^ k + 1 / 2 ^ 123 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa44 u v hu 0 (ε := 1 / 2 ^ 127) (by norm_num)
     (avg_X2_44 v hv 0) (avg_Xz2_44 u v hv 0)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_44
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 1 / 2 ^ 127 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 127 ≤ 27 / 50 := by norm_num
@@ -7306,21 +7347,23 @@ theorem alg3_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 25
 every `k`, `ℓ¹ ≤ k · 2^-135` and still running after `k` attempts `≤ (1 − μ/2)^k + 2^-135`. -/
 theorem alg3_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c)) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v 0
-        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        Bad2R (2 ^ 19) 261888 196 16 u v 0 (1 / 2 ^ 140) A).card : ℚ) / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
         ≤ 1 / 2 ^ 139 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v 0
-          (1 / 2 ^ 140) a → ∀ k : ℕ,
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 196 16 u v 0 (1 / 2 ^ 140) A → ∀ k : ℕ,
         ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 19) 196 u)
-              (r0 negacyclic (2 ^ 19) 261888 196 v a)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+              (r0R (2 ^ 19) 261888 196 v A)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 19) 261888 196 v A y c &&
               zok (2 ^ 19) 196 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 135) ∧
         ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 19) 196 u)
-              (r0 negacyclic (2 ^ 19) 261888 196 v a)).loop.state k y ≤
+              (r0R (2 ^ 19) 261888 196 v A)).loop.state k y ≤
           (1 - mu 8380417 261888 196 16 6 256 / 2) ^ k + 1 / 2 ^ 135 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa65 u v hu 0 (ε := 1 / 2 ^ 140) (by norm_num)
     (avg_X2_65 v hv 0) (avg_Xz2_65 u v hv 0)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_65
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 1 / 2 ^ 140 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 140 ≤ 3 / 5 := by norm_num
@@ -7334,21 +7377,23 @@ theorem alg3_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 25
 every `k`, `ℓ¹ ≤ k · 2^-152` and still running after `k` attempts `≤ (1 − μ/2)^k + 2^-152`. -/
 theorem alg3_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c)) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v 0
-        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        Bad2R (2 ^ 19) 261888 120 16 u v 0 (1 / 2 ^ 157) A).card : ℚ) / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
         ≤ 1 / 2 ^ 157 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v 0
-          (1 / 2 ^ 157) a → ∀ k : ℕ,
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 120 16 u v 0 (1 / 2 ^ 157) A → ∀ k : ℕ,
         ∑ x, |(Bathwater.alg3 0 (zcB (2 ^ 19) 120 u)
-              (r0 negacyclic (2 ^ 19) 261888 120 v a)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+              (r0R (2 ^ 19) 261888 120 v A)).loop.outUpTo k x -
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 19) 261888 120 v A y c &&
               zok (2 ^ 19) 120 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 152) ∧
         ∑ y, (Bathwater.alg3 0 (zcB (2 ^ 19) 120 u)
-              (r0 negacyclic (2 ^ 19) 261888 120 v a)).loop.state k y ≤
+              (r0R (2 ^ 19) 261888 120 v A)).loop.state k y ≤
           (1 - mu 8380417 261888 120 16 8 256 / 2) ^ k + 1 / 2 ^ 152 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa87 u v hu 0 (ε := 1 / 2 ^ 157) (by norm_num)
     (avg_X2_87 v hv 0) (avg_Xz2_87 u v hv 0)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_87
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 1 / 2 ^ 157 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 157 ≤ 3 / 5 := by norm_num
@@ -7594,21 +7639,23 @@ and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2
 theorem altR0_joint_mldsa44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) → ℤ)
     (v : C → Fin (4 * 256) → ℤ) (hu : ∀ c, Bounded 78 (u c)) (hv : ∀ c, Bounded 78 (v c))
     (h₀ : Fin 4) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-        (1 / 2 ^ 127))).card : ℚ) / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        Bad2R (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) A).card : ℚ) / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
         ≤ 1 / 2 ^ 127 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 17) 95232 78 44 u v h₀
-          (1 / 2 ^ 127) a → ∀ k : ℕ,
-        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+      ∀ A, ¬ Bad2R (2 ^ 17) 95232 78 44 u v h₀ (1 / 2 ^ 127) A → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 17) 95232 78 v a y c &&
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 17) 95232 78 v A y c &&
               zok (2 ^ 17) 78 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 125) ∧
-        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 17) 95232 78 v a)
+        ∑ y, (Bathwater.altR0Set {h₀} (r0R (2 ^ 17) 95232 78 v A)
               (zok (2 ^ 17) 78 u)).loop.state k y ≤
           (1 - mu 8380417 95232 78 44 4 256 / 2) ^ k + 1 / 2 ^ 125 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa44 u v hu h₀ (ε := 1 / 2 ^ 127) (by norm_num)
     (avg_X2_44 v hv h₀) (avg_Xz2_44 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_44
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 17) 78 4 256 - 1 / 2 ^ 127 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 127 ≤ 27 / 50 := by norm_num
@@ -7625,21 +7672,23 @@ and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2
 theorem altR0_joint_mldsa65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) → ℤ)
     (v : C → Fin (6 * 256) → ℤ) (hu : ∀ c, Bounded 196 (u c)) (hv : ∀ c, Bounded 196 (v c))
     (h₀ : Fin 5) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-        (1 / 2 ^ 140))).card : ℚ) / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        Bad2R (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) A).card : ℚ) / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
         ≤ 1 / 2 ^ 139 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 196 16 u v h₀
-          (1 / 2 ^ 140) a → ∀ k : ℕ,
-        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 196 16 u v h₀ (1 / 2 ^ 140) A → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 196 v a y c &&
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 19) 261888 196 v A y c &&
               zok (2 ^ 19) 196 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 138) ∧
-        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 196 v a)
+        ∑ y, (Bathwater.altR0Set {h₀} (r0R (2 ^ 19) 261888 196 v A)
               (zok (2 ^ 19) 196 u)).loop.state k y ≤
           (1 - mu 8380417 261888 196 16 6 256 / 2) ^ k + 1 / 2 ^ 138 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa65 u v hu h₀ (ε := 1 / 2 ^ 140) (by norm_num)
     (avg_X2_65 v hv h₀) (avg_Xz2_65 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_65
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 196 5 256 - 1 / 2 ^ 140 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 140 ≤ 3 / 5 := by norm_num
@@ -7656,21 +7705,23 @@ and alt-r0 is still running after `k` attempts with probability `≤ (1 − μ/2
 theorem altR0_joint_mldsa87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) → ℤ)
     (v : C → Fin (8 * 256) → ℤ) (hu : ∀ c, Bounded 120 (u c)) (hv : ∀ c, Bounded 120 (v c))
     (h₀ : Fin 7) :
-    ((univ.filter (Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-        (1 / 2 ^ 157))).card : ℚ) / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        Bad2R (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) A).card : ℚ) / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
         ≤ 1 / 2 ^ 157 ∧
-      ∀ a, ¬ Bad2 (negacyclic (q := 8380417) (n := 256)) (2 ^ 19) 261888 120 16 u v h₀
-          (1 / 2 ^ 157) a → ∀ k : ℕ,
-        ∑ x, |(Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+      ∀ A, ¬ Bad2R (2 ^ 19) 261888 120 16 u v h₀ (1 / 2 ^ 157) A → ∀ k : ℕ,
+        ∑ x, |(Bathwater.altR0Set {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u)).loop.outUpTo k x -
-            (Bathwater.vanilla (fun y c => r0 negacyclic (2 ^ 19) 261888 120 v a y c &&
+            (Bathwater.vanilla (fun y c => r0R (2 ^ 19) 261888 120 v A y c &&
               zok (2 ^ 19) 120 u y c)).loop.outUpTo k x| ≤ k * (1 / 2 ^ 155) ∧
-        ∑ y, (Bathwater.altR0Set {h₀} (r0 negacyclic (2 ^ 19) 261888 120 v a)
+        ∑ y, (Bathwater.altR0Set {h₀} (r0R (2 ^ 19) 261888 120 v A)
               (zok (2 ^ 19) 120 u)).loop.state k y ≤
           (1 - mu 8380417 261888 120 16 8 256 / 2) ^ k + 1 / 2 ^ 155 := by
   obtain ⟨h1, -⟩ := main2 negacyclic params_mldsa87 u v hu h₀ (ε := 1 / 2 ^ 157) (by norm_num)
     (avg_X2_87 v hv h₀) (avg_Xz2_87 u v hv h₀)
-  refine ⟨h1.trans (le_of_eq (by field_simp)), fun a ha k => ?_⟩
+  refine ⟨(frac_ring _).trans_le (h1.trans (le_of_eq (by field_simp))), fun A => ?_⟩
+  simp only [← r0_coeffsOf, Bad2R]
+  generalize coeffsOf A = a
+  intro ha k
   have hpz := pz_ge_87
   have hgap : (1 / 2 : ℚ) ≤ pz (2 ^ 19) 120 7 256 - 1 / 2 ^ 157 := by
     have : (1 / 2 : ℚ) + 1 / 2 ^ 157 ≤ 3 / 5 := by norm_num

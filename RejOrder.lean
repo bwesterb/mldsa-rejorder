@@ -1503,12 +1503,13 @@ namespace RejOrder
 
 variable {q : ℕ} [NeZero q] [Fact q.Prime] {n : ℕ} [NeZero n]
 
-/-- Matrix of multiplication by `a` in `Z_q[X]/(X^n + 1)`: column `t` holds the coefficients
-of `a · X^t`. -/
-def negacyclic (a : Fin n → ZMod q) : Matrix (Fin n) (Fin n) (ZMod q) :=
+/-- Matrix of multiplication by `a` in `R[X]/(X^n + 1)`, over any ring `R`: column `t` holds the
+coefficients of `a · X^t`. Used over `ℤ_q`, and over `ℤ` and `ℚ` in `Bathwater.lean`. -/
+def negacyclic {R : Type*} [Ring R] {n : ℕ} (a : Fin n → R) : Matrix (Fin n) (Fin n) R :=
   fun s t => if t ≤ s then a (s - t) else -a (s - t)
 
-lemma negacyclic_col (ζ : ZMod q) (hζ : ζ ^ n = -1) (a : Fin n → ZMod q) (t : Fin n) :
+lemma negacyclic_col {R : Type*} [CommRing R] {n : ℕ} [NeZero n] (ζ : R) (hζ : ζ ^ n = -1)
+    (a : Fin n → R) (t : Fin n) :
     ∑ s : Fin n, ζ ^ (s : ℕ) * negacyclic a s t = ∑ u : Fin n, a u * ζ ^ ((u : ℕ) + (t : ℕ)) := by
   rw [← Equiv.sum_comp (Equiv.addRight t)]
   refine Finset.sum_congr rfl fun u _ => ?_
@@ -1531,7 +1532,7 @@ lemma negacyclic_col (ζ : ZMod q) (hζ : ζ ^ n = -1) (a : Fin n → ZMod q) (t
 
 /-- `Z_q[X]/(X^n + 1)` with `n` distinct roots of `X^n + 1` satisfies the NTT interface. -/
 theorem isNTTMul_negacyclic (ζ : Fin n → ZMod q) (hinj : Function.Injective ζ)
-    (hroot : ∀ k, ζ k ^ n = -1) : IsNTTMul ζ (negacyclic (q := q) (n := n)) where
+    (hroot : ∀ k, ζ k ^ n = -1) : IsNTTMul ζ (negacyclic (R := ZMod q) (n := n)) where
   inj := hinj
   ne0 k := by
     intro h0
@@ -1605,7 +1606,7 @@ lemma zetaMLDSA_inj : Function.Injective zetaMLDSA := by
   exact Fin.ext (by omega)
 
 /-- The ML-DSA ring satisfies the NTT interface. -/
-theorem isNTTMul_mldsa : IsNTTMul zetaMLDSA (negacyclic (q := 8380417) (n := 256)) :=
+theorem isNTTMul_mldsa : IsNTTMul zetaMLDSA (negacyclic (R := ZMod 8380417) (n := 256)) :=
   isNTTMul_negacyclic zetaMLDSA zetaMLDSA_inj zetaMLDSA_root
 
 end RejOrder
@@ -1775,6 +1776,29 @@ lemma avg_ringMat {K L : ℕ} (F : Matrix (Fin (K * 256)) (Fin (L * 256)) (ZMod 
     avg (fun A : Matrix (Fin K) (Fin L) Rq => F (ringMat A))
       = avg (fun a : Fin K → Fin L → Fin 256 → ZMod 8380417 => F (modMat negacyclic a)) := by
   rw [avg_matrix]; simp only [ringMat_of]
+
+/-- The coefficient arrays of a matrix over `R_q`. -/
+noncomputable def coeffsOf {K L : ℕ} (A : Matrix (Fin K) (Fin L) Rq) :
+    Fin K → Fin L → Fin 256 → ZMod 8380417 := fun i j => coeffs (A i j)
+
+/-- The coefficient form of `A` gives the same matrix as `ringMat A`. -/
+lemma modMat_coeffsOf {K L : ℕ} (A : Matrix (Fin K) (Fin L) Rq) :
+    modMat negacyclic (coeffsOf A) = ringMat A := by
+  rw [← ringMat_of]
+  congr 1
+  ext i j
+  simp [coeffsOf, ofCoeffs_coeffs]
+
+/-- A fraction of matrices over `R_q` is the same fraction of coefficient arrays. -/
+lemma frac_ring {K L : ℕ} (P : (Fin K → Fin L → Fin 256 → ZMod 8380417) → Prop)
+    [DecidablePred P] :
+    ((univ.filter fun A : Matrix (Fin K) (Fin L) Rq => P (coeffsOf A)).card : ℚ)
+        / Fintype.card (Matrix (Fin K) (Fin L) Rq)
+      = ((univ.filter P).card : ℚ) / Fintype.card (Fin K → Fin L → Fin 256 → ZMod 8380417) := by
+  let e : Matrix (Fin K) (Fin L) Rq ≃ (Fin K → Fin L → Fin 256 → ZMod 8380417) :=
+    Matrix.of.symm.trans (Equiv.piCongrRight fun _ => Equiv.piCongrRight fun _ => coeffsEquiv)
+  have he : ∀ A, e A = coeffsOf A := fun A => rfl
+  rw [Fintype.card_congr e, Finset.card_equiv e (t := univ.filter P) (fun A => by simp [he])]
 
 end RejOrder
 
