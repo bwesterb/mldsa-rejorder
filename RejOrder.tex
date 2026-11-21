@@ -119,101 +119,120 @@ ML-DSA-87 & $2^{-729}$ & $\le 2^{-566}$ \\
 \section{Setting}
 %======================================================================
 
-\paragraph{What circl does.}
-One iteration of the rejection loop (\texttt{sign/mldsa/*/internal/dilithium.go}) is:
+We use the notation of FIPS~204. $\Rq = \Zq[X]/(X^{256}+1)$ with $q = 8380417$; the public
+matrix is $\hat A = \mathrm{ExpandA}(\rho)$, and we write $A \in \Rq^{k\times\ell}$ for the matrix
+it represents (its inverse NTT); the secret is $(s_1, s_2) \in \Rq^\ell\times\Rq^k$ with
+coefficients in $[-\eta,\eta]$; the challenge $c$ has $\tau$ coefficients $\pm1$, so
+$\|cs_1\|_\infty, \|cs_2\|_\infty \le \beta = \tau\eta$.
+
+\paragraph{The rejection loop.}
+One iteration of the loop of ML-DSA.Sign\_internal (FIPS~204, Algorithm~7) is:
 \begin{enumerate}
-  \item sample $y \in \Rq^L$ with coefficients in $(-\gamma_1,\gamma_1]$;
-  \item $w = Ay$, $(w_1,w_0) = \mathrm{Decompose}(w)$, $\tilde c = H(\mu \,\|\, w_1)$, $c = \mathrm{SampleInBall}(\tilde c)$;
-  \item \textbf{$r_0$ check:} if $\|w_0 - cs_2\|_\infty \ge \gamma_2-\beta$, reject;
-  \item \textbf{$z$ check:} $z = y + cs_1$; if $\|z\|_\infty \ge \gamma_1-\beta$, reject;
-  \item further checks ($\|ct_0\|_\infty \ge \gamma_2$, hint weight $>\omega$), then output.
+  \item $y \gets \mathrm{ExpandMask}(\rho'', \kappa) \in \Rq^\ell$, with coefficients in
+        $[-\gamma_1+1,\gamma_1]$;
+  \item $w \gets Ay$, $w_1 \gets \mathrm{HighBits}(w)$, $\tilde c \gets H(\mu \,\|\, w_1)$,
+        $c \gets \mathrm{SampleInBall}(\tilde c)$;
+  \item $z \gets y + cs_1$, $r_0 \gets \mathrm{LowBits}(w - cs_2)$;
+  \item if $\|z\|_\infty \ge \gamma_1-\beta$ or $\|r_0\|_\infty \ge \gamma_2-\beta$, reject
+        (the \emph{$z$ check} and the \emph{$r_0$ check});
+  \item further checks ($\|ct_0\|_\infty \ge \gamma_2$, more than $\omega$ hint bits), then output
+        $(\tilde c, z, h)$.
 \end{enumerate}
-FIPS~204 performs the $z$ check first. Both \texttt{Exceeds} routines exit at the first failing
-polynomial, and (in the generic code) at the first failing coefficient; the AVX2 code exits at the
-first failing block of 32 coefficients. So the timing of steps 3--4 reveals (at most) the index of
-the first failing coefficient of the first failing check.
+circl (\texttt{sign/mldsa/*/internal/dilithium.go}) performs the $r_0$ check \emph{before} the
+$z$ check, and computes it as $\|w_0 - cs_2\|_\infty$ with $w_0 = \mathrm{LowBits}(w)$; for
+$\|cs_2\|_\infty\le\beta$ the two forms agree (Lemma~3 of the Dilithium specification,
+\lean{lowBits\_shift}). Both \texttt{Exceeds} routines exit at the first failing polynomial, and
+(in the generic code) at the first failing coefficient; the AVX2 code exits at the first failing
+block of 32 coefficients. So timing reveals (at most) the position of the first failing
+coefficient of the first failing check.
 
 \paragraph{Why the order could matter.}
-The $z$ check alone is harmless: for every shift $u = cs_1$ with $\|u\|_\infty\le\beta$, each
-coordinate of $y+u$ lands outside $(-(\gamma_1-\beta), \gamma_1-\beta)$ with probability exactly
-$p_Z = (2\beta+1)/2\gamma_1$, independently, so the first failing index is \emph{exactly} geometric
-and independent of the secret. The $r_0$ check is different: its outcome depends on $v = cs_2$
-through $\lowbits(Ay)-v$, and the coordinates of $Ay$ are not independent of each other. If it is
-done first, its failure index is revealed for every $y$, not only for those that already passed the
-$z$ check. The question is whether that index carries information about $v$.
+The $z$ check alone is harmless: for every $u = cs_1$ with $\|u\|_\infty\le\beta$, each
+coefficient of $y+u$ lands outside $(-(\gamma_1-\beta), \gamma_1-\beta)$ with probability exactly
+$p_Z = (2\beta+1)/2\gamma_1$, independently, so the first failing position is \emph{exactly}
+geometric and independent of the secret. The $r_0$ check is different: its outcome depends on
+$v = cs_2$ through $\mathrm{LowBits}(Ay - v)$, and the coefficients of $Ay$ are not independent of
+each other. If it is done first, its first failing position is revealed for every $y$, not only
+for those that already passed the $z$ check. The question is whether that position carries
+information about $v$.
 
 %======================================================================
 \section{The model}
 %======================================================================
 
-Throughout, $m = Kn$ and $l = Ln$ with $n=256$, and vectors in $\Rq^L$, $\Rq^K$ are identified
-with $\Z^{l}$ or $\Zq^{l}$, $\Zq^m$ coefficient-wise, polynomial by polynomial (index
-$256\,i + s$ for coefficient $s$ of polynomial $i$). The challenge $c$ is \emph{fixed}; it enters only
-through the two shifts
-\[
-  u = cs_1 \in \Z^{l}, \qquad v = cs_2 \in \Z^{m}, \qquad \|u\|_\infty,\ \|v\|_\infty \le \beta,
-\]
-which are otherwise arbitrary (\lean{Bounded}). We need $\beta = \tau\eta$, which
-bounds $\|cs_i\|_\infty$ for every $c$ of weight $\tau$.
-
-\begin{definition}[Parameters, \lean{Params}]
-Naturals $q,\gamma_1,\gamma_2,\beta,b$ with $q = 2\gamma_2 b + 1$, $\beta<\gamma_1$,
-$\beta<\gamma_2$, $b>0$. (Here $b = (q-1)/2\gamma_2$ is the number of high-bit values.)
-\end{definition}
-
+\paragraph{Parameters.}
 \begin{center}
-\begin{tabular}{lcccccc}
+\begin{tabular}{lccccccc}
 \toprule
- & $(K,L)$ & $\gamma_1$ & $\gamma_2$ & $\beta$ & $b$ \\
+ & $(k,\ell)$ & $\eta$ & $\tau$ & $\beta=\tau\eta$ & $\gamma_1$ & $\gamma_2$ & $b$ \\
 \midrule
-ML-DSA-44 & $(4,4)$ & $2^{17}$ & $95232$  & $78$  & $44$ \\
-ML-DSA-65 & $(6,5)$ & $2^{19}$ & $261888$ & $196$ & $16$ \\
-ML-DSA-87 & $(8,7)$ & $2^{19}$ & $261888$ & $120$ & $16$ \\
+ML-DSA-44 & $(4,4)$ & $2$ & $39$ & $78$  & $2^{17}$ & $(q-1)/88$ & $44$ \\
+ML-DSA-65 & $(6,5)$ & $4$ & $49$ & $196$ & $2^{19}$ & $(q-1)/32$ & $16$ \\
+ML-DSA-87 & $(8,7)$ & $2$ & $60$ & $120$ & $2^{19}$ & $(q-1)/32$ & $16$ \\
 \bottomrule
 \end{tabular}
 \end{center}
-with $q = 8380417$ throughout.
+Here $b = (q-1)/2\gamma_2$ is the number of values of $\mathrm{HighBits}$. The Lean development
+only uses $q = 2\gamma_2 b + 1$, $\beta<\gamma_1$, $\beta<\gamma_2$ (\lean{Params}).
+
+\paragraph{Positions.}
+A coefficient of $w \in \Rq^k$ is addressed by its \emph{position} $(i,s)$: polynomial
+$i<k$, coefficient $s<256$. Positions are ordered polynomial by polynomial, as the checks scan
+them; there are $256k$ of them. Likewise $y, z \in \Rq^\ell$ have $256\ell$ positions $(j,s)$.
+$\mathcal{B}$ is the set of $y$ with all coefficients in $[-\gamma_1+1,\gamma_1]$, the range of
+ExpandMask (\lean{box}).
+
+The challenge $c$ is \emph{fixed} (see A1 in Section~\ref{sec:assumptions}); it enters only through
+the two shifts
+\[
+  u = cs_1 \in \Rq^\ell,\qquad v = cs_2 \in \Rq^k,\qquad \|u\|_\infty,\ \|v\|_\infty \le \beta,
+\]
+which are otherwise arbitrary (\lean{Bounded}).
 
 \begin{definition}[Model of one attempt]\label{def:model}
 \leavevmode
 \begin{itemize}
-  \item $\mathcal{B} = (-\gamma_1,\gamma_1]^{l} \subset \Z^l$; $y$ is uniform on $\mathcal{B}$ (\lean{box}).
-  \item $\lowbits:\Zq\to\Z$ is the low part of FIPS~204 Decompose with $\alpha = 2\gamma_2$,
-        including the corner case $r - r_0 = q-1 \Rightarrow r_0 \gets r_0 - 1$ (\lean{lowBits}).
-  \item $M \in \Zq^{m\times l}$ is the matrix of $A$; $w = M\,(y \bmod q)$.
-  \item Coordinate $i$ fails the $r_0$ check iff $|\lowbits(w_i) - v_i| \ge \gamma_2-\beta$;
-        coordinate $k$ fails the $z$ check iff $|y_k + u_k| \ge \gamma_1-\beta$.
-  \item $I(y)\in\{0,\dots,m-1\}\cup\{\bot\}$ and $J(y)\in\{0,\dots,l-1\}\cup\{\bot\}$ are the
-        least failing indices.
+  \item $y$ is uniform on $\mathcal{B}$, and $w = Ay$.
+  \item $\mathrm{LowBits}$ is that of FIPS~204 (Decompose with $\alpha = 2\gamma_2$, including the
+        corner case $r - r_0 = q-1 \Rightarrow r_0 \gets r_0 - 1$; \lean{lowBits}).
+  \item Position $(i,s)$ fails the $r_0$ check iff $|\mathrm{LowBits}(w - v)_{i,s}| \ge
+        \gamma_2-\beta$; position $(j,s)$ fails the $z$ check iff $|(y+u)_{j,s}| \ge \gamma_1-\beta$.
+  \item $I(y)$ and $J(y)$ are the first failing positions of the $r_0$ and $z$ checks, or
+        $\bot$ if there is none.
   \item The \emph{view} is
   \[
-    \mathrm{view}_{M,u,v}(y) =
+    \mathrm{view}_{A,u,v}(y) =
     \begin{cases}
-      \mathsf{rFail}(i) & \text{if } I(y) = i,\\
-      \mathsf{zFail}(j) & \text{if } I(y) = \bot,\ J(y)=j,\\
-      \mathsf{pass}(y+u) & \text{if } I(y)=J(y)=\bot.
+      \mathsf{rFail}(i,s) & \text{if } I(y) = (i,s),\\
+      \mathsf{zFail}(j,s) & \text{if } I(y) = \bot,\ J(y)=(j,s),\\
+      \mathsf{pass}(z) & \text{if } I(y)=J(y)=\bot,\ z = y+u.
     \end{cases}
   \]
 \end{itemize}
 \end{definition}
 
+In Lean, $A$ enters through the $\Zq$-matrix of $y\mapsto Ay$ on coefficient vectors
+(\lean{ringMat}), and the $r_0$ check is stated as $|\mathrm{LowBits}(w)_{i,s} - v_{i,s}| \ge
+\gamma_2-\beta$, which is equivalent by \lean{lowBits\_shift}. Most of the development holds for
+any matrix $M$ in place of $A$.
+
 \paragraph{Faithfulness to circl.}
 The circl code computes $w_0 - cs_2$ in $\Zq$ and compares its centred representative with
-$\gamma_2-\beta$. Since $|w_0|\le\gamma_2$ and $|v_i|\le\beta$, the integer $w_0-v_i$ is well
-inside $(-q/2,q/2)$, so this is exactly $|\lowbits(w_i)-v_i|$. The same holds for $z$. The
-coefficient ordering, the ranges of $y$, the parameters and the matrix $A$ as a block matrix of
-negacyclic multiplications all match. A coarser view (e.g.\ AVX2's block index) is a function of
-the modelled view and is therefore covered.
+$\gamma_2-\beta$. Since $|w_0|\le\gamma_2$ and $|v_{i,s}|\le\beta$, the integer $w_0-v_{i,s}$ is
+well inside $(-q/2,q/2)$, so this is exactly the check above. The same holds for $z$. The
+coefficient ordering, the ranges of $y$, the parameters and $A$ match. A coarser view (e.g.\
+AVX2's block index) is a function of the modelled view and is therefore covered.
 
 \begin{definition}[Reference distribution and leak, \lean{leak}]
 Let $p_R = 1 - b\,(2(\gamma_2-\beta)-1)/q$ and $p_Z = (2\beta+1)/2\gamma_1$; these are the
-per-coordinate failure probabilities of the $r_0$ check for \emph{uniform} $w\in\Zq$ and of the
-$z$ check. Let $\geom_p(i) = (1-p)^i p$ and $\geom_p(\bot)=(1-p)^{N}$ for $N$ trials. Define
+per-coefficient failure probabilities of the $r_0$ check for \emph{uniform} $w$ and of the
+$z$ check. For the position $r$ with index $|r|$ in the scan order let
+$\geom_p(r) = (1-p)^{|r|} p$. Define
 \[
-  \leak(M,u,v) = \sum_{i<m} \Bigl|\Pr_y[\mathsf{rFail}(i)] - \geom_{p_R}(i)\Bigr|
-  + \sum_{j<l} \Bigl|\Pr_y[\mathsf{zFail}(j)] - \geom_{p_Z}(j)\,(1-p_R)^m\Bigr|.
+  \leak(A,u,v) = \sum_{(i,s)} \Bigl|\Pr_y[\mathsf{rFail}(i,s)] - \geom_{p_R}(i,s)\Bigr|
+  + \sum_{(j,s)} \Bigl|\Pr_y[\mathsf{zFail}(j,s)] - \geom_{p_Z}(j,s)\,(1-p_R)^{256k}\Bigr|.
 \]
-The reference values do not depend on $u$, $v$ or $M$.
+The reference values do not depend on $u$, $v$ or $A$.
 \end{definition}
 
 %======================================================================
@@ -221,9 +240,8 @@ The reference values do not depend on $u$, $v$ or $M$.
 %======================================================================
 
 \begin{theorem}[\lean{leak\_mldsa44}, \lean{leak\_mldsa65}, \lean{leak\_mldsa87}]\label{thm:main}
-Let $(q,\gamma_1,\gamma_2,\beta,b,K,L)$ be an ML-DSA parameter set, $\Rq = \Zq[X]/(X^{256}+1)$,
-and $A$ uniform in $\Rq^{K\times L}$. For every $u\in\Z^{Ln}$, $v\in\Z^{Kn}$ with
-$\|u\|_\infty,\|v\|_\infty\le\beta$,
+For each ML-DSA parameter set, $A$ uniform in $\Rq^{k\times\ell}$, and every $u \in \Rq^\ell$,
+$v \in \Rq^k$ with $\|u\|_\infty,\|v\|_\infty\le\beta$,
 \[
   \E_A\bigl[\leak(A,u,v)\bigr] \le
   \begin{cases}
@@ -237,30 +255,27 @@ $\|u\|_\infty,\|v\|_\infty\le\beta$,
 The accepted views are handled exactly:
 
 \begin{proposition}[\lean{view\_pass}]\label{prop:pass}
-For every $M$, bounded $u,v$ and $z\in\Z^l$,
+For every $A$, bounded $u,v$ and $z \in \Rq^\ell$,
 \[
   \Pr_y[\mathrm{view}(y) = \mathsf{pass}(z)] =
   \begin{cases}
-    (2\gamma_1)^{-l} & \text{if } \|z\|_\infty < \gamma_1-\beta \text{ and}\\
-       & \quad \forall i,\ |\lowbits\bigl((Mz - (Mu+v))_i\bigr)| < \gamma_2-\beta,\\
+    (2\gamma_1)^{-256\ell} & \text{if } \|z\|_\infty < \gamma_1-\beta \text{ and }
+       \|\mathrm{LowBits}(Az - (Au+v))\|_\infty < \gamma_2-\beta,\\
     0 & \text{otherwise.}
   \end{cases}
 \]
-In particular it depends on $(u,v)$ only through $Mu+v$, which for ML-DSA is $c\,t$ with
-$t = As_1+s_2$.
+In particular it depends on $(u,v)$ only through $Au+v$, which for ML-DSA is $c\,t$ with
+$t = As_1+s_2$: the familiar fact that a signature can be checked against $Az - ct$.
 \end{proposition}
-
-The proof uses the shift lemma (Lemma~3 of the Dilithium specification, \lean{lowBits\_shift}):
-for $|v|\le\beta$, $|\lowbits(w)-v| < \gamma_2-\beta \iff |\lowbits(w-v)|<\gamma_2-\beta$.
 
 Together these give the meaning of $\leak$:
 
 \begin{theorem}[\lean{indist}]\label{thm:indist}
-Fix $M$. Let $(u,v)$ and $(u',v')$ be bounded with $Mu+v = Mu'+v'$. Then for every test
+Fix $A$. Let $(u,v)$ and $(u',v')$ be bounded with $Au+v = Au'+v'$. Then for every test
 $D$ on views,
 \[
-  \Bigl|\Pr_y[D(\mathrm{view}_{M,u,v}(y))] - \Pr_y[D(\mathrm{view}_{M,u',v'}(y))]\Bigr|
-  \le \leak(M,u,v)+\leak(M,u',v').
+  \Bigl|\Pr_y[D(\mathrm{view}_{A,u,v}(y))] - \Pr_y[D(\mathrm{view}_{A,u',v'}(y))]\Bigr|
+  \le \leak(A,u,v)+\leak(A,u',v').
 \]
 \end{theorem}
 
@@ -313,7 +328,7 @@ $y$ (assumption A1 below). Both are standard. The bad set of matrices depends on
   of $y$, and since Theorem~\ref{thm:main} holds for \emph{every} bounded $(u,v)$, it also holds
   averaged over $c$. Consequently, leaking $c$ (e.g.\ through \textsc{SampleInBall} timing) is
   harmless for this argument; leaking anything about $w_1$ or $y$ beyond the view is not covered.
-\item \textbf{Uniform $y$ and $A$.} $y$ (from SHAKE-256) and $A$ (from \textsc{ExpandA}) are
+\item \textbf{Uniform $y$ and $A$.} $y$ (from \textsc{ExpandMask}) and $A$ (from \textsc{ExpandA}) are
   modelled as uniform, and $A$ as independent of $(s_1,s_2)$.
 \item \textbf{Average over $A$.} The bound is on $\E_A[\leak]$, not for every $A$. Markov's
   inequality turns it into a per-key statement; see Theorem~\ref{thm:headline}.
@@ -326,7 +341,7 @@ $y$ (assumption A1 below). Both are standard. The bad set of matrices depends on
   later $\|ct_0\|_\infty\ge\gamma_2$ check (also early-exiting) and the hint-weight check are not
   modelled. They are independent of the order question but are timing-visible.
 \item \textbf{Leakage model.} Each \texttt{Exceeds} call is assumed to reveal only the first
-  failing index; all other operations (NTT, hashing, \textsc{Decompose}, \ldots) are assumed
+  failing position; all other operations (NTT, hashing, \textsc{Decompose}, \ldots) are assumed
   constant time.
 \end{enumerate}
 
@@ -353,45 +368,49 @@ The proof has five steps.
 %----------------------------------------------------------------------
 
 \begin{lemma}[\lean{z\_pass\_count}, \lean{J\_dist}]
-For $|u_k|\le\beta$, exactly $2(\gamma_1-\beta)-1$ points $y_k\in(-\gamma_1,\gamma_1]$ pass the $z$
-check. Since $\mathcal{B}$ is a product, $\Pr_y[J(y) = o] = \geom_{p_Z}(o)$ for every bounded $u$.
+For $|u_{j,s}|\le\beta$, exactly $2(\gamma_1-\beta)-1$ values $y_{j,s}\in[-\gamma_1+1,\gamma_1]$
+pass the $z$ check. Since $\mathcal{B}$ is a product, $\Pr_y[J(y) = o] = \geom_{p_Z}(o)$ for every
+bounded $u$.
 \end{lemma}
 
 \begin{lemma}[\lean{r\_pass\_count}]
-For $|v_i|\le\beta$, exactly $b\,(2(\gamma_2-\beta)-1)$ elements $w\in\Zq$ satisfy
-$|\lowbits(w)-v_i|<\gamma_2-\beta$. Hence for $w$ uniform in $\Zq^m$, the first failing index is
-distributed as $\geom_{p_R}$, and $\Pr_w[\text{all } i\in T \text{ fail}] = p_R^{|T|}$.
+For $|v_{i,s}|\le\beta$, exactly $b\,(2(\gamma_2-\beta)-1)$ elements $x\in\Zq$ satisfy
+$|\mathrm{LowBits}(x)-v_{i,s}|<\gamma_2-\beta$. Hence for $w$ uniform in $\Rq^k$, the first
+failing position is distributed as $\geom_{p_R}$, and all positions in a set $T$ fail with
+probability $p_R^{|T|}$.
 \end{lemma}
 
-The only nontrivial ingredient is a bijection between $\Zq$ and the valid decompositions
-$(r_1,r_0)$: $\{0,\dots,b-1\}\times(-\gamma_2,\gamma_2]$ together with the corner point
-$(0,-\gamma_2)$, which has exactly $q$ elements. On this set $\lowbits$ is the projection to $r_0$,
-so shifting by $v_i$ shifts $r_0$, and the count reduces to counting an interval.
+The only nontrivial ingredient is a bijection between $\Zq$ and the valid outputs
+$(r_1,r_0)$ of Decompose: $\{0,\dots,b-1\}\times(-\gamma_2,\gamma_2]$ together with the corner
+point $(0,-\gamma_2)$, which has exactly $q$ elements. On this set $\mathrm{LowBits}$ is the
+projection to $r_0$, so shifting by $v_{i,s}$ shifts $r_0$, and the count reduces to counting an
+interval.
 
 %----------------------------------------------------------------------
 \subsection{Step 2: views as product sets}
 %----------------------------------------------------------------------
 
-Let $\mathrm{good}_r \subseteq \Zq$ be the values of coordinate $r$ of $w$ that pass the $r_0$
-check (with shift $v_r$), and let
+Number the $256k$ positions of $w$ in scan order. Let $\mathrm{good}_{i,s} \subseteq \Zq$ be the
+values of $w_{i,s}$ that pass the $r_0$ check (with shift $v_{i,s}$), and for $0\le e\le 256k$ let
 \[
-  P_i = \prod_{r<i}\mathrm{good}_r \times \prod_{r\ge i}\Zq
+  P_e = \{\, w \in \Rq^k : \text{the first $e$ positions of $w$ pass}\,\}
 \]
-be the set of $w$ whose first $i$ coordinates pass (\lean{Pset}), of density
-$\mu_i = (1-p_R)^i$ (\lean{muP\_eq}). Then ``the $r_0$ check first fails at $i$'' is
-$Ay \in P_i\setminus P_{i+1}$, and ``the $z$ check first fails at $j$'' is $y \in B_j$ and
-$Ay \in P_m$, where $B_j = \{y\in\mathcal B : J(y) = j\}$ has probability $\geom_{p_Z}(j)$
-exactly (Step~1). For $B'\subseteq\mathcal{B}$ let
+(\lean{Pset}), a product of the sets $\mathrm{good}$ on the first $e$ positions and $\Zq$ on the
+others, of density $\mu_e = (1-p_R)^e$ (\lean{muP\_eq}). Then ``the $r_0$ check first fails at
+the $e$-th position'' is $Ay \in P_e\setminus P_{e+1}$, and ``the $z$ check first fails at
+$(j,s)$'' is $y \in B_{j,s}$ and $Ay \in P_{256k}$, where
+$B_{j,s} = \{y\in\mathcal B : J(y) = (j,s)\}$ has probability $\geom_{p_Z}(j,s)$ exactly
+(Step~1). For $B'\subseteq\mathcal{B}$ let
 \[
-  D_i(B') = \Bigl|\Pr_y\bigl[y\in B',\ Ay \in P_i\bigr] - \Pr_y[y\in B']\,\mu_i\Bigr|
+  D_e(B') = \Bigl|\Pr_y\bigl[y\in B',\ Ay \in P_e\bigr] - \Pr_y[y\in B']\,\mu_e\Bigr|
   \qquad(\text{\lean{Dev}}).
 \]
 Comparing each view with its reference value term by term gives (\lean{leak\_le\_Dev})
 \[
-  \leak(A,u,v) \le \sum_{i<m}\bigl(D_i(\mathcal B) + D_{i+1}(\mathcal B)\bigr)
-    + \sum_{j<l} D_m(B_j).
+  \leak(A,u,v) \le \sum_{e<256k}\bigl(D_e(\mathcal B) + D_{e+1}(\mathcal B)\bigr)
+    + \sum_{(j,s)} D_{256k}(B_{j,s}).
 \]
-So it suffices to bound $\E_A D_i(B')$, uniformly in $i$ and in the sub-event $B'$.
+So it suffices to bound $\E_A D_e(B')$, uniformly in $e$ and in the sub-event $B'$.
 
 %----------------------------------------------------------------------
 \subsection{Step 3: the second moment by Fourier analysis}
@@ -399,19 +418,19 @@ So it suffices to bound $\E_A D_i(B')$, uniformly in $i$ and in the sub-event $B
 
 Expanding the square,
 \[
-  \E_A D_i(B')^2 = \frac{1}{|\mathcal B|^2}\sum_{y,y'\in B'}
-    \mathrm{Cov}_A\bigl(\mathbf 1[Ay\in P_i],\,\mathbf 1[Ay'\in P_i]\bigr),
+  \E_A D_e(B')^2 = \frac{1}{|\mathcal B|^2}\sum_{y,y'\in B'}
+    \mathrm{Cov}_A\bigl(\mathbf 1[Ay\in P_e],\,\mathbf 1[Ay'\in P_e]\bigr),
 \]
 a sum over pairs of nonces of covariances over $A$. For a fixed pair, $A\mapsto(Ay,Ay')$ is an
-additive map, and $P_i$ is a \emph{product} set. Its indicator has Fourier coefficients that factor
-over coordinates. A nonzero frequency on a free coordinate ($r \ge i$) gives $0$, and on a
-passing coordinate costs a factor of at most $b = p_R/(1-p_R) \approx 2^{-10.25}$ relative to the
-zero frequency, since the bad set is small. Averaging the characters over $A$ keeps exactly the
+additive map, and $P_e$ is a \emph{product} set. Its indicator has Fourier coefficients that factor
+over positions. A nonzero frequency on a free position (beyond the first $e$) gives $0$, and on a
+passing position costs a factor of at most $\theta = p_R/(1-p_R) \approx 2^{-10.25}$ relative to
+the zero frequency, since the failing set is small. Averaging the characters over $A$ keeps exactly the
 pairs of frequencies $(\xi,\xi')$ for which $\xi\cdot Ay + \xi'\cdot Ay' = 0$ for all $A$. This gives
 (\lean{cov\_le})
 \[
-  \bigl|\mathrm{Cov}_A\bigr| \le \mu_i^2\!\!\sum_{\substack{\xi,\xi'\ne0\\
-    \xi\cdot Ay+\xi'\cdot Ay'\equiv0}}\!\! b^{\mathrm{wt}(\xi)+\mathrm{wt}(\xi')},
+  \bigl|\mathrm{Cov}_A\bigr| \le \mu_e^2\!\!\sum_{\substack{\xi,\xi'\ne0\\
+    \xi\cdot Ay+\xi'\cdot Ay'\equiv0}}\!\! \theta^{\mathrm{wt}(\xi)+\mathrm{wt}(\xi')},
 \]
 with $\mathrm{wt}$ the Hamming weight. If no nonzero test vector $(\xi,\xi')$ is orthogonal to
 the image, $(Ay,Ay')$ is uniform and the covariance is $0$; otherwise the bound charges each
@@ -421,27 +440,23 @@ orthogonal test vector by its weight. The rest of the proof counts these test ve
 \subsection{Step 4: the module structure}
 %----------------------------------------------------------------------
 
-Up to here nothing used the ring. Now $A$ is a $K\times L$ matrix of elements of
-$\Rq = \Zq[X]/(X^n+1)$, and the only property used (\lean{IsNTTMul}) is:
-
-\begin{quote}
-multiplication is diagonalised by evaluation at $n$ distinct nonzero points $\zeta_k$, i.e.\
-$\widehat{ac}(k) = \hat a(k)\,\hat c(k)$ where $\hat a(k) = \sum_s a_s\zeta_k^s$.
-\end{quote}
-
-\noindent For ML-DSA, $\zeta_k = 1753^{2k+1}$ (proved: $1753^{256} = -1$ and $1753$ has order
-$512$; \lean{isNTTMul\_mldsa}).
+Up to here nothing used the ring. Now the structure of $\Rq$ enters, only through the NTT
+(\lean{IsNTTMul}): $\hat a = \mathrm{NTT}(a)$ evaluates $a$ at the $256$ roots of $X^{256}+1$,
+the odd powers of $\zeta = 1753$, and multiplication is slot-wise,
+$\widehat{ac} = \hat a\circ\hat c$. The order of the slots plays no role, so we index slot $k$ by
+the root $\zeta_k = \zeta^{2k+1}$ rather than FIPS~204's bit-reversed order, and write
+$\hat a(k) = \sum_s a_s\zeta_k^s$ (proved: $1753^{256} = -1$; \lean{isNTTMul\_mldsa}).
 
 \noindent In Lean, Theorem~\ref{thm:main} is stated over $\Rq$ itself: section \lean{RingForm}
 takes $\Rq$ = \lean{AdjoinRoot} $(X^{256}+1)$ from Mathlib, $A$ uniform in
-$\Rq^{K\times L}$, and $M = $ \lean{ringMat}$\,A$, the $\Zq$-matrix of $y \mapsto Ay$ on
+$\Rq^{k\times\ell}$, and \lean{ringMat}$\,A$, the $\Zq$-matrix of $y \mapsto Ay$ on
 coefficient vectors (\lean{ringMat\_mulVec}). The bridge to the negacyclic matrices is exact: a
 product in $\Rq$ has the coefficients of the negacyclic product (\lean{coeffs\_mul}, by
 evaluating at the $\zeta_k$ and inverting the Vandermonde matrix), and a uniform $A$ has uniform
 coefficients (\lean{avg\_ringMat}).
 
 \paragraph{Dual coordinates and degenerate slots.}
-Write a test vector $\xi$ on row $i$ of the output as
+Write a test vector $\xi$ on polynomial $i$ of $w$ as
 $\xi_{(i,s)} = \sum_k \zeta_k^s\,\tilde\xi_i(k)$, which is always possible since the
 Vandermonde matrix is invertible (\lean{dual}). Then
 $\xi\cdot(Ay) = \sum_{i,j,k}\tilde\xi_i(k)\,\hat a_{ij}(k)\,\hat y_j(k)$, and since the
@@ -451,7 +466,7 @@ $\hat a_{ij}(k)$ can be chosen freely, $(\xi,\xi')$ is orthogonal for all $A$ ex
   \qquad\text{for all } i,j,k
 \]
 (\lean{slot\_of\_orth}). Call slot $k$ \emph{degenerate} for the pair if the vectors
-$(\hat y_j(k))_j$ and $(\hat y'_j(k))_j$ in $\Zq^L$ are linearly dependent, and let $D(y,y')$ be
+$(\hat y_j(k))_j$ and $(\hat y'_j(k))_j$ in $\Zq^\ell$ are linearly dependent, and let $D(y,y')$ be
 the set of degenerate slots (\lean{degS}). An orthogonal pair of test vectors has all its dual
 coordinates on $D(y,y')$ (\lean{dualIn\_of\_orth}), and if $D = \emptyset$ there is none
 (\lean{dualIn\_empty}).
@@ -459,43 +474,43 @@ coordinates on $D(y,y')$ (\lean{dualIn\_of\_orth}), and if $D = \emptyset$ there
 \paragraph{Degenerate slots are rare (window argument).}
 \begin{lemma}[\lean{slot\_prob}, \lean{deg\_card\_prob}]
 If $2\gamma_1\le q$, then for $y,y'$ independent and uniform on $\mathcal{B}$, a given set of $d$
-slots is degenerate with probability at most $\rho^d$, $\rho = (q+1)/(2\gamma_1)^L$.
+slots is degenerate with probability at most $\rho^d$, $\rho = (q+1)/(2\gamma_1)^\ell$.
 \end{lemma}
 \begin{proof}[Idea]
 A union bound over one of the $q+1$ lines $(c:c')$ per slot reduces this to one linear condition
-on $(\hat y_j(k),\hat y'_j(k))$ per slot and per $j<L$. Say $r$ slots constrain $y_j$. Fix all
+on $(\hat y_j(k),\hat y'_j(k))$ per slot and per $j<\ell$. Say $r$ slots constrain $y_j$. Fix all
 coefficients of $y_j$ except the first $r$. The remaining unknowns form a polynomial of degree $<r$
 whose values at $r$ distinct points are prescribed, so it is determined (\lean{window}). Because
-$2\gamma_1\le q$, coefficients in $(-\gamma_1,\gamma_1]$ are determined by their residues mod $q$.
-So at most a $(2\gamma_1)^{-r}$ fraction of the box survives, for each of the $L$ polynomials.
+$2\gamma_1\le q$, coefficients in $[-\gamma_1+1,\gamma_1]$ are determined by their residues mod $q$.
+So at most a $(2\gamma_1)^{-r}$ fraction of the box survives, for each of the $\ell$ polynomials.
 \end{proof}
 
-\paragraph{Counting test vectors by rows.}
-Let $E_b(d)$ bound the $b$-weighted number of nonzero test vectors whose duals lie on a given set
-$S$ of $d$ slots, $\sum_{\xi\ne0,\ \tilde\xi\subseteq S} b^{\mathrm{wt}(\xi)}$
-(\lean{wsum\_le}). Group the $\xi$ by their coefficient support $T$. On row $i$, $\xi$ vanishes
-outside the $t_i$ positions of $T$ in that row, so on a cyclic run of $g_i$ consecutive positions
-(\lean{cgap}; runs may wrap around because $\zeta_k^n=-1$ for all $k$, \lean{dual\_row\_zero}).
+\paragraph{Counting test vectors polynomial by polynomial.}
+Let $E(d)$ bound the $\theta$-weighted number of nonzero test vectors whose duals lie on a given set
+$S$ of $d$ slots, $\sum_{\xi\ne0,\ \tilde\xi\subseteq S} \theta^{\mathrm{wt}(\xi)}$
+(\lean{wsum\_le}). Group the $\xi$ by their coefficient support $T$. On polynomial $i$, $\xi$ vanishes
+outside the $t_i$ positions of $T$ in that polynomial, so on a cyclic run of $g_i$ consecutive positions
+(\lean{cgap}; runs may wrap around because $\zeta_k^{256}=-1$ for all $k$, \lean{dual\_row\_zero}).
 A function $\tilde\xi_i$ supported on at most $r$ slots whose ``power sums'' vanish on $r$
 consecutive exponents is zero (\lean{dual\_vanish}, an uncertainty principle), so $\tilde\xi_i$ is
-determined by its values on all but $g_i$ slots of $S$, and row $i$ contributes at most
+determined by its values on all but $g_i$ slots of $S$, and polynomial $i$ contributes at most
 $q^{\min(t_i,\,d-g_i)}$ test vectors (\lean{card\_suppIn1\_le\_xg}). The weight
-$b^{|T|}$ factors over the rows too, so the sum over $T$ is the $K$-th power of a row sum
-(\lean{wcount\_le\_rows}). The row sum groups the subsets of an $n$-cycle by their longest free
+$\theta^{|T|}$ factors over the polynomials too, so the sum over $T$ is the $k$-th power of a
+sum over one polynomial (\lean{wcount\_le\_rows}). That sum groups the subsets of a $256$-cycle by their longest free
 run; those whose free runs all have length at most $g$ are counted through compositions, as
 coefficients of $(1+X+\dots+X^g)^{v}$ (\lean{card\_linSet}, \lean{card\_shortSet}), evaluated by
 packing polynomial coefficients into large integers (Kronecker substitution, \lean{GapEval}).
 
 \paragraph{Putting it together.}
 Group the pairs $(y,y')$ by $d = |D(y,y')|$. Pairs with $d = 0$ contribute nothing. For $1\le
-d\le d_m$, the pair sum is at most $E_b(d)^2$ ($\xi$ and $\xi'$ both live on $D$), and the
+d\le d_m$, the pair sum is at most $E(d)^2$ ($\xi$ and $\xi'$ both live on $D$), and the
 probability of $d$ given degenerate slots is at most $\rho^d$. Pairs with more than $d_m$
 degenerate slots are charged the trivial bound. So (\lean{Dsq\_le})
 \[
-  \E_A D_i(B')^2 \le \sum_{d=1}^{d_m}\binom nd\rho^d E_b(d)^2 + \binom{n}{d_m+1}\rho^{d_m+1},
+  \E_A D_e(B')^2 \le \sum_{d=1}^{d_m}\binom{256}{d}\rho^d E(d)^2 + \binom{256}{d_m+1}\rho^{d_m+1},
 \]
-uniformly in $i$ and $B'$ (the pairs run over $B'\times B'\subseteq\mathcal B\times\mathcal B$).
-Jensen then gives $\E_A D_i(B')$ as the square root (\lean{avg\_Dev\_le}).
+uniformly in $e$ and $B'$ (the pairs run over $B'\times B'\subseteq\mathcal B\times\mathcal B$).
+Jensen then gives $\E_A D_e(B')$ as the square root (\lean{avg\_Dev\_le}).
 
 %----------------------------------------------------------------------
 \subsection{Step 5: numerics}
@@ -504,7 +519,7 @@ Jensen then gives $\E_A D_i(B')$ as the square root (\lean{avg\_Dev\_le}).
 Cleared of denominators, ``the right-hand side above is at most $2^{-2j}$'' is one inequality
 between natural numbers per parameter set (\lean{numR}), checked by kernel evaluation
 (\lean{decide +kernel}, not \lean{native\_decide}; \lean{numR\_44} etc.). Then
-$\E_A[\leak] \le (2Kn + Ln)\,2^{-j}$ (\lean{leak\_avg\_fourier}).
+$\E_A[\leak] \le 256(2k + \ell)\,2^{-j}$ (\lean{leak\_avg\_fourier}).
 
 \begin{center}
 \begin{tabular}{lcccc}
@@ -520,11 +535,6 @@ ML-DSA-87 & 23 & 742 & $4.6\cdot10^{-4}$ & $2^{-729}$ \\
 The bound is limited by the pairs with more than $d_m$ degenerate slots and by the crude count of
 test vectors on many slots, not by actual leakage (Section~\ref{sec:tight}).
 
-\paragraph{History.} An earlier version of this proof used Bonferroni truncation over the events
-``all coordinates in $T$ fail'', a capped second moment and counts by the size of $T$, and gave
-$2^{-289}$, $2^{-418}$, $2^{-568}$. The product-Fourier bound, developed for the nonce-reuse
-analysis in \lean{Bathwater.lean}, replaced it; the old route is in the git history.
-
 %======================================================================
 \section{How tight is this? (numerical experiments)}\label{sec:tight}
 %======================================================================
@@ -535,22 +545,24 @@ extrapolations are labelled as such.
 
 \paragraph{Two easy facts.}
 \begin{itemize}
-  \item The leak is never exactly zero. $\Pr_y[I(y)=0]$ is a fraction with denominator
-        $(2\gamma_1)^l$, a power of two, while $p_R$ has the odd prime $q$ in its denominator. So
-        $\leak(A,u,v)\ge 1/(q(2\gamma_1)^l)\approx2^{-18455}$ for ML-DSA-44. This is distance to
+  \item The leak is never exactly zero. $\Pr_y[I(y)=(0,0)]$ is a fraction with denominator
+        $(2\gamma_1)^{256\ell}$, a power of two, while $p_R$ has the odd prime $q$ in its
+        denominator. So $\leak(A,u,v)\ge 1/(q(2\gamma_1)^{256\ell})\approx2^{-18455}$ for
+        ML-DSA-44. This is distance to
         the reference, not dependence on the secret.
   \item Some matrices really leak, so averaging over $A$ is unavoidable. If the first row of $A$
-        is a constant polynomial $c$ and zero elsewhere, then $w_0 = c\,y_0$, and for a suitable
-        $c$ whether coordinate $0$ fails depends visibly on $v_0$, at a level of about
+        is $(a, 0, \dots, 0)$ with $a \in \Zq$ a constant polynomial, then $w_0 = a\,y_0$, and for
+        a suitable $a$ whether position $(0,0)$ fails depends visibly on $v_{0,0}$, at a level of about
         $1/(2\gamma_1)$. Such matrices make up only about $q^{-1023}$ of all $A$.
 \end{itemize}
 
-\paragraph{One coordinate, computed exactly.}
-For one output coordinate $w_0=\sum_c M_{0c}y_c$ and a uniformly random row of $M$, the shift
-lemma makes ``coordinate $0$ fails, given $v_0$'' a translate of a fixed set. Its dependence on
-$v_0$ is a Fourier sum over the $q-1$ nonzero frequencies $\xi$, with
+\paragraph{One coefficient, computed exactly.}
+One coefficient of $w$ is $w_{0,0}=\sum_{c} m_c\,y_c$, a linear form in the $256\ell$ coefficients
+$y_c$ of $y$, with $m = (m_c)_c$ uniform when $A$ is. The shift lemma makes ``position $(0,0)$
+fails, given $v_{0,0}$'' a translate of a fixed set. Its dependence on $v_{0,0}$ is a Fourier sum
+over the $q-1$ nonzero frequencies $\xi$, with
 \[
-  \hat P(\xi)=\prod_{c}\varphi(M_{0c}\,\xi),\qquad
+  \hat P(\xi)=\prod_{c}\varphi(m_c\,\xi),\qquad
   |\varphi(x)|=\frac{|\sin(2\pi\gamma_1x/q)|}{2\gamma_1|\sin(\pi x/q)|}.
 \]
 We evaluated this sum exactly, in $\log_2$, for all $\xi$. The method was checked against brute
@@ -559,7 +571,7 @@ force on small instances.
 \begin{center}
 \begin{tabular}{lccc}
 \toprule
- & deviation of one coordinate & proved per-attempt bound & gap \\
+ & deviation of one coefficient & proved per-attempt bound & gap \\
 \midrule
 ML-DSA-44 & $\approx2^{-18100}$ & $2^{-405}$ & ${\approx}17700$ bits \\
 ML-DSA-65 & $\approx2^{-25250}$ & $2^{-547}$ & ${\approx}24700$ bits \\
@@ -567,13 +579,13 @@ ML-DSA-87 & $\approx2^{-35400}$ & $2^{-729}$ & ${\approx}34700$ bits \\
 \bottomrule
 \end{tabular}
 \end{center}
-(Several random rows per parameter set; these are typical values, varying by tens of bits.) The
-scale is easy to explain. Since $x\mapsto M_{0c}x$ permutes $\Zq$, each factor $\log_2|\varphi|$
+(Several random $m$ per parameter set; these are typical values, varying by tens of bits.) The
+scale is easy to explain. Since $x\mapsto m_c x$ permutes $\Zq$, each factor $\log_2|\varphi|$
 averages exactly $-\log_2(2\gamma_1)$, so a typical frequency gives $2^{-18\cdot1024}$ for
 ML-DSA-44. The best of the roughly $2^{22}$ frequencies gains about $300$ bits through ordinary
 fluctuations, not because a few factors are unusually large.
 
-\paragraph{Pairs of coordinates, sampled.}
+\paragraph{Pairs of coefficients, sampled.}
 A pair has about $q^2\approx2^{46}$ frequencies, too many to scan; that would take about five
 years on 24 cores. Instead, for ML-DSA-44 we sampled $4\cdot10^9$ random frequency pairs and
 scanned about $6000$ lines $\xi_2=\lambda\xi_1$ exactly. Findings:
@@ -584,7 +596,7 @@ scanned about $6000$ lines $\xi_2=\lambda\xi_1$ exactly. Findings:
   \item The same extrapolation applied to single lines, whose exact maxima we know, predicts
         them correctly: on average to within $0.2$ bits, with the right spread.
   \item The extrapolated maximum for a pair is about $2^{-17979\pm10}$, about $150$ bits larger
-        than for one coordinate.
+        than for one coefficient.
   \item No structured direction stands out: not the axes, small $\lambda$, simple fractions, or,
         for two adjacent coefficients of one polynomial, the directions singled out by the
         negacyclic structure. One sampled pair showed a mild excess in the extreme tail
@@ -594,7 +606,7 @@ scanned about $6000$ lines $\xi_2=\lambda\xi_1$ exactly. Findings:
 \paragraph{Larger joint events.}
 Under the same model, joint events with all of $T$ failing, for $|T|$ up to about $30$--$50$,
 are still estimated near $2^{-16000}$ for
-ML-DSA-44. Very large joint events are genuinely non-uniform: for ML-DSA-65 and 87, $m>l$, so
+ML-DSA-44. Very large joint events are genuinely non-uniform: for ML-DSA-65 and 87, $k>\ell$, so
 some nonzero frequency gives exactly $1$. But these enter with weight about $p_R^{|T|}$, roughly
 $2^{-10|T|}$, so they do not change the picture.
 
@@ -618,8 +630,8 @@ Section & Content \\
 \lean{Layer1} & accepted views (Proposition~\ref{prop:pass}) \\
 \lean{Leak} & $\leak$, \lean{indist}, averages, Markov \\
 \lean{Uncertainty} & Vandermonde window and uncertainty principle \\
-\lean{Module}, \lean{ModuleProb} & block matrix, dual coordinates, slot conditions, window argument \\
-\lean{ModuleCount}, \lean{Profile} & test vectors on a coordinate set; \lean{deg\_card\_prob} \\
+\lean{Module}, \lean{ModuleProb} & block matrix, NTT slots, slot conditions, window argument \\
+\lean{ModuleCount}, \lean{Profile} & test vectors on a set of positions; \lean{deg\_card\_prob} \\
 \lean{Negacyclic} & $\Zq[X]/(X^n+1)$ satisfies \lean{IsNTTMul}; ML-DSA roots \\
 \lean{RingForm} & $\Rq$ as Mathlib's \lean{AdjoinRoot}; \lean{coeffs\_mul}, \lean{ringMat}, \lean{avg\_ringMat} \\
 \lean{Numeric} & binomial coefficients for the kernel \\

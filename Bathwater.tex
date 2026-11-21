@@ -94,9 +94,10 @@ z first, then keep $y_2..y_\ell$ on r$_0$ & (variant) &
 
 \section{Setting}\label{sec:setting}
 
-A signing attempt draws $y=(y_1,\dots,y_\ell)$ uniformly from $(-\gamma_1,\gamma_1]^{n\ell}$,
-computes the challenge $c$ from $w_1 = \mathrm{HighBits}(Ay)$, sets $z = y + c s_1$ and runs two
-checks:
+We follow FIPS~204 (ML-DSA.Sign\_internal, Algorithm~7). A signing attempt draws
+$y=(y_1,\dots,y_\ell) = \mathrm{ExpandMask}(\rho'',\kappa) \in R_q^\ell$, with coefficients
+uniform in $[-\gamma_1+1,\gamma_1]$, computes $w = Ay$, $w_1 = \mathrm{HighBits}(w)$ and the
+challenge $c = \mathrm{SampleInBall}(H(\mu\,\|\,w_1))$, sets $z = y + c s_1$ and runs two checks:
 \begin{align*}
 \text{z-check:}\quad & \|z_i\|_\infty < \gamma_1-\beta \text{ for every } i
   \qquad\text{(polynomial $i$ depends only on $y_i$ and $c$)},\\
@@ -106,7 +107,7 @@ checks:
 Vanilla resamples all of $y$ after any failure. The proposals keep some polynomials of $y$.
 
 \paragraph{The model (Trans hybrid).} The security proof of Fiat--Shamir with aborts
-(\cite{BBDD23}, adapted in thesis \S8.4) first replaces the random-oracle call $c = H(M\|w_1)$ by
+(\cite{BBDD23}, adapted in thesis \S8.4) first replaces the random-oracle call $\tilde c = H(\mu\|w_1)$ by
 a fresh uniform $c$ in every attempt, and programs $H$ only for the accepted attempt. The
 distance from the real scheme is bounded by the min-entropy of $w_1$ (the thesis does this for
 alt-z). After that hop, zero-knowledge is a purely combinatorial question about the loop: what is
@@ -280,29 +281,43 @@ So alt-r0 is exactly as close to vanilla as $\rho$ is to a constant, on average 
 
 \subsection{The result}
 
-Take $\mu$ to be the probability that a \emph{uniform} $w$ passes the r$_0$-check,
-$\mu = (\#\text{passing values}/q)^{kn}$, and let $\rho_c(t)$ be the probability, over $y_{h_0}$
-uniform in its box, that $A\cdot(y_{h_0}, t)$ passes the r$_0$-check with shift $c s_2$
-(\lean{AltR0.rhoC}).
-
-\begin{theorem}[\lean{AltR0.dev\_mldsa44\_sharp}, \lean{\_65\_sharp}, \lean{\_87\_sharp}]
-For every $c$ with $\|c s_2\|_\infty \le \beta$, every choice of the resampled polynomial $h_0$,
-and $y_{h_0}$ ranging over either the full box or the z-passing box shifted by $c s_1$,
+We use the notation of FIPS~204: $R_q = \Z_q[X]/(X^{256}+1)$, $A \in R_q^{k\times\ell}$ the matrix
+represented by $\hat A = \mathrm{ExpandA}(\rho)$, $y \in R_q^\ell$ with coefficients in
+$[-\gamma_1+1,\gamma_1]$ (the range of ExpandMask), and the r$_0$-check
+$\|\mathrm{LowBits}(Ay - cs_2)\|_\infty < \gamma_2-\beta$. Fix the challenge $c$ and the index
+$h_0$ of the polynomial that alt-r0 resamples. For a tail $t = (y_j)_{j\ne h_0}$ let $\rho_c(t)$ be
+the probability, over a fresh $y_{h_0}$, that $Ay$ passes the r$_0$-check
+(\lean{AltR0.rhoC}), and let
 \[
-  \mathop{\mathbb E}_A \mathop{\mathbb E}_t |\rho_c(t) - \mu| \le \mu\cdot 2^{-147},\
-  \mu \cdot 2^{-182},\ \mu\cdot 2^{-190}
+  \mu = \Big(\frac{b\,(2(\gamma_2-\beta)-1)}{q}\Big)^{256k},\qquad b = \frac{q-1}{2\gamma_2},
 \]
-for ML-DSA-44, -65, -87, with $A$ uniform in $R_q^{k\times\ell}$ and $t$ uniform.
+the probability that a \emph{uniform} $w \in R_q^k$ passes. The whole analysis rests on one
+estimate about the ring: on average over $A$ and the tail, $\rho_c(t)$ is very close to $\mu$.
+
+\begin{theorem}[\lean{RingForm.moment\_mldsa44}, \lean{\_65}, \lean{\_87}]\label{thm:moment}
+For ML-DSA-44/65/87, every $v = cs_2$ with $\|v\|_\infty \le \beta$ and every $h_0$, with
+$y_{h_0}$ uniform either with coefficients in $[-\gamma_1+1,\gamma_1]$ or on the z-passing range
+(the $2(\gamma_1-\beta)-1$ values for which $y_{h_0}+cs_1$ passes the z-check),
+\[
+  \mathop{\mathbb E}_{A \in R_q^{k\times\ell}} \mathop{\mathbb E}_t\, (\rho_c(t) - \mu)^2
+  \le \mu^2\, 2^{-382},\quad \mu^2\, 2^{-420},\quad \mu^2\, 2^{-472}.
+\]
 \end{theorem}
 
-The second moment behind it is $\mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
-\le \mu^2 2^{-294}, \mu^2 2^{-364}, \mu^2 2^{-380}$ (\lean{var\_mldsa44\_sharp} etc.), and
-with the $1/q$ slot bound of Section~\ref{sec:slotq} it is
-$\le \mu^2 2^{-382}, \mu^2 2^{-420}, \mu^2 2^{-472}$ (\lean{var\_mldsa44\_q} etc.). Combining
-with Section~\ref{sec:altr0} (the full box controls $D$, the z-passing box gives
+In Lean this is stated over Mathlib's $R_q = $ \lean{AdjoinRoot} $(X^{256}+1)$: $A$ ranges over
+matrices with entries in that ring, $Ay$ is the ring product, and the r$_0$-check reads the
+coefficients of the reduced representative. The bridge to the coefficient-level proof (section
+\lean{RingForm} of \lean{RejOrder.lean}) is exact: \lean{coeffs\_mul} (a product in $R_q$ has the
+coefficients of the negacyclic matrix product, checked by evaluating at the $256$ roots of
+$X^{256}+1$ and inverting the Vandermonde matrix) and \lean{avg\_matrix} (uniform $A$ means
+uniform coefficients). The headline theorems below use the second moment only in this form (via
+\lean{var\_mldsa44\_ring} etc.), so Theorem~\ref{thm:moment} is their only ML-DSA-specific
+computation.
+
+Combining it with Section~\ref{sec:altr0} (the full range controls $D$, the z-passing range gives
 $P \ge \mu p_z - \text{error}$ with $p_z \approx 0.54, 0.62, 0.66$ the z pass probability) and
-Markov's inequality over $A$ applied to that \emph{second} moment (a matrix is bad if the mean
-squared deviation exceeds $(\mu\varepsilon)^2$; for the others the mean deviation is below
+Markov's inequality over $A$ applied to the second moment (a matrix is bad if the mean squared
+deviation exceeds $(\mu\varepsilon)^2$; for the others the mean deviation is below
 $\mu\varepsilon$ by Cauchy--Schwarz, \lean{main2}):
 
 \begin{theorem}[\lean{AltR0Final.altR0\_mldsa44}, \lean{\_65}, \lean{\_87}]
@@ -321,10 +336,7 @@ ML-DSA-87 & $\le 2^{-157}$ & $\le 2^{-155}$ & $\le 2^{-156}$\\
 The last two columns hold for every $A$ outside the bad set. The bad fraction scales as
 $2\cdot 2^{-k}/\varepsilon^2$ ($k = 382, 420, 472$) and the distance as $4\varepsilon$, so the
 trade-off can be moved; e.g.\ keeping the distance at $2^{-95}$ for ML-DSA-44 makes the bad
-fraction $2^{-187}$. (Before the $1/q$ slot bound, $k = 294, 364, 380$ gave
-$2^{-97}/2^{-96}$, $2^{-121}/2^{-119}$, $2^{-127}/2^{-124}$.) (Applying
-Markov to the first moment instead, \lean{altR0\_mldsa44\_eps}, gives only $2^{-73}$ and
-$2^{-71}$.)
+fraction $2^{-187}$.
 \end{theorem}
 
 These are per-signature distances in the Trans model; over $N$ signatures they add up ($N$ times).
@@ -342,8 +354,9 @@ attempts, which is what timing reveals, and justifies an attempt cap such as CIR
 
 \subsection{Why it works: the second moment over $A$}
 
-Fix $c$ (so the shift $v = c s_2$) and write $G \subseteq \Z_q^{kn}$ for the set of $w$ that pass the
-r$_0$-check; $G$ is a product of per-coordinate sets of density $1 - p_R$. Then
+Fix $c$ (so the shift $v = c s_2$) and write $G \subseteq R_q^k$ for the set of $w$ that pass the
+r$_0$-check, i.e.\ $\|\mathrm{LowBits}(w - v)\|_\infty < \gamma_2-\beta$; $G$ is a product of
+per-coefficient sets of density $1 - p_R$. Then
 \[
   \mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
   = \mathop{\mathbb E}_{y_{h_0}, y'_{h_0}, t}\ \mathop{\mathbb E}_A
@@ -352,124 +365,90 @@ r$_0$-check; $G$ is a product of per-coordinate sets of density $1 - p_R$. Then
 \]
 a sum over pairs of nonces that \emph{share the tail}.
 
-\paragraph{Fourier (\lean{cov\_le}, in \lean{RejOrder.lean}).} For $A$ uniform, $(Ay, Ay')$ is uniform on
-a subgroup, and
+\paragraph{Fourier (\lean{cov\_le}).} For $A$ uniform, $(Ay, Ay')$ is uniform on a subgroup, and
 \[
   \Big|\mathop{\mathbb E}_A\big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big]\Big|
   \le \mu^2 \!\!\sum_{\substack{\xi,\xi' \neq 0\\ \xi\cdot Ay + \xi'\cdot Ay' \equiv 0}}\!\!
-      b^{\mathrm{wt}(\xi) + \mathrm{wt}(\xi')},
-  \qquad b = \frac{p_R}{1-p_R} \approx 2^{-10.25}.
+      \theta^{\mathrm{wt}(\xi) + \mathrm{wt}(\xi')},
+  \qquad \theta = \frac{p_R}{1-p_R} \approx 2^{-10.25}.
 \]
 The point is that $1_G$ is a product: its Fourier coefficient at $\xi$ is a product over
-coordinates, and every nonzero coordinate costs a factor $b$ (the bad set is small). This
-replaces Bonferroni truncation, which with only one fresh polynomial gives just $2^{-15}$; the
-same bound now also proves the timing result of \lean{RejOrder.lean}.
+coefficients, and every nonzero coefficient costs a factor $\theta$ (the failing set is small).
+The same bound proves the timing result of \lean{RejOrder.lean}.
 
-\paragraph{Support (\lean{degS\_sub}, \lean{dualIn\_of\_orth}).} An orthogonal pair $(\xi,\xi')$ has
-its dual (NTT) coordinates on the \emph{degenerate slots} of $(y,y')$. For a pair sharing the tail,
-a slot is degenerate only if $y_{h_0} - y'_{h_0}$ vanishes there or the whole tail vanishes there.
-Each happens with probability at most $1/w$ resp.\ $(2\gamma_1)^{-(\ell-1)}$ by the window argument
-($w$ the width of the head box), so $d$ given slots are all degenerate with probability at most
-$p^d$, $p = 1/w + (2\gamma_1)^{-(\ell-1)}$ (\lean{prob\_Z}, \lean{prob\_deg\_ge}).
+\paragraph{Degenerate slots (\lean{degS\_sub}, \lean{dualIn\_of\_orth}).} Write $\hat y_j =
+\mathrm{NTT}(y_j)$, the values of $y_j$ at the $256$ roots of $X^{256}+1$ (the \emph{slots}).
+An orthogonal pair $(\xi,\xi')$ has its dual (NTT) coordinates on the \emph{degenerate slots} of
+$(y,y')$, where $(\hat y_j)_j$ and $(\hat y'_j)_j$ are linearly dependent. For a pair sharing the
+tail, a slot is degenerate only if $\hat y_{h_0} - \hat y'_{h_0}$ vanishes there or the whole tail
+vanishes there. The first happens with probability at most about $1/q$ (Section~\ref{sec:slotq}),
+the second with probability at most $(2\gamma_1)^{-(\ell-1)}$ (window argument), so at least
+$d$ slots are degenerate with probability at most $c\,\binom{256}{d}p^d$,
+$p = 1/q + (2\gamma_1)^{-(\ell-1)}$, with a small constant $c$ (\lean{prob\_deg\_ge\_q}).
 
-\paragraph{Counting (\lean{wsum\_le}, \lean{wcount\_le\_EN}).} The $b$-weighted number of test
-vectors on $d$ slots is bounded by the gap counts of \lean{RejOrder.lean}: a test vector supported
-on coefficient set $T$ with duals on $d$ slots is one of at most $q^{\mathrm{xg}(d,T)}$, and
-$\sum_{|T| = t} q^{\mathrm{xg}}$ is evaluated with \lean{coefK}. Pairs with more than
-$d_m$ degenerate slots are charged the trivial bound $1$.
-
-\paragraph{Pairing $\xi'$ with $\xi$ (section \lean{AltR0SharpPart}).} The covariance bound above weights
-$\xi$ and $\xi'$ independently. In fact, at every degenerate slot the pair is tied:
+\paragraph{Pairing $\xi'$ with $\xi$ (section \lean{AltR0SharpPart}).} The covariance bound above
+weights $\xi$ and $\xi'$ independently. In fact, at every degenerate slot the pair is tied:
 where the tail does not vanish, orthogonality forces $\tilde\xi'(k) = -\tilde\xi(k)$; where the
 tail vanishes and both heads are nonzero, $\tilde\xi'(k) = -(\hat y_{h_0}(k)/\hat y'_{h_0}(k))
 \tilde\xi(k)$. So unless a degenerate slot is \emph{exceptional} (tail and one head vanish there),
 $\xi' = \Phi\xi$ for a bijection $\Phi$ that rescales dual coordinates slot by slot
-(\lean{orth\_eq\_pairMap}). With $b^{\mathrm{wt}\,\xi + \mathrm{wt}\,\Phi\xi} \le
-(b^{2\mathrm{wt}\,\xi} + b^{2\mathrm{wt}\,\Phi\xi})/2$ and $\Phi$ permuting the test vectors on the
-degenerate slots, the pair sum is at most the $b^2$-weighted count of single test vectors
-(\lean{pair\_sum\_le}): squared weight, and no square of the count. Exceptional slots occur with
-probability about $2(2\gamma_1)^{-\ell}$ each (section \lean{AltR0ExcPart}, \lean{prob\_deg\_exc});
-triples with one keep the crude bound.
+(\lean{orth\_eq\_pairMap}). With $\theta^{\mathrm{wt}\,\xi + \mathrm{wt}\,\Phi\xi} \le
+(\theta^{2\mathrm{wt}\,\xi} + \theta^{2\mathrm{wt}\,\Phi\xi})/2$ and $\Phi$ permuting the test
+vectors on the degenerate slots, the pair sum is at most the $\theta^2$-weighted count of single
+test vectors (\lean{pair\_sum\_le}): squared weight, and no square of the count. Exceptional slots
+occur with probability about $2(2\gamma_1)^{-\ell}$ each (section \lean{AltR0ExcPart},
+\lean{prob\_deg\_exc\_q}); pairs with one are charged the unpaired bound.
 
-\paragraph{Numbers.} The crude version gives (\lean{var\_le}, \lean{var\_rel})
+\paragraph{Counting (\lean{wsum\_le}, \lean{wcount\_le\_rows}).} The weighted number $E(d)$ of
+test vectors on $d$ slots is bounded with the free-run counts of \lean{RejOrder.lean}: on each
+polynomial $i$ of $w$, a test vector supported on $t_i$ coefficients vanishes on a cyclic run of
+the others, and the uncertainty principle bounds how many such vectors have their duals on $d$
+given slots. The weight factors over the $k$ polynomials, so the sum is a $k$-th power of a
+one-polynomial sum.
+
+\paragraph{Numbers (\lean{var\_rel\_gen}).} Altogether
 \[
-  \mathop{\mathbb E}_A\mathop{\mathbb E}_t (\rho_c(t)-\mu)^2
-  \le \mu^2 \sum_{d=1}^{d_m}\binom nd p^d E_b(d)^2 + \binom{n}{d_m+1}p^{d_m+1},
+  \frac{\mathop{\mathbb E}_A\mathop{\mathbb E}_t (\rho_c(t)-\mu)^2}{\mu^2}
+  \le c\sum_{d=1}^{d_1}\binom{256}{d} p^d E_{\theta^2}(d)
+    + c^2\sum_{d=1}^{d_2}\binom{256}{d}\big(p_e^d - p^d\big) E_\theta(d)^2 + (\text{tails}),
 \]
-with $E_b(d)$ the bound on the weighted count. Cleared of denominators, the inequality
-``$\le \mu^2/2^{k}$'' is an integer inequality checked by \lean{decide +kernel}, with $k = 246,
-290, 266$ ($d_m = 19, 19, 17$; $t$ up to $250, 400, 500$ in the gap counts; about $10$\,s each).
-Cauchy--Schwarz halves the exponent (\lean{dev\_rel}): about $2^{-123}, 2^{-145}, 2^{-133}$
-(these crude instances are no longer kept in the file). The
-sharp version (\lean{var\_rel\_sharp}, \lean{dev\_rel\_sharp}) has two sums, the main one with
-$b^2$-weighted counts up to $d_1 = 25, 26, 27$ degenerate slots and the exceptional one as before,
-and is checked with $k = 294, 364, 380$; hence $2^{-147}, 2^{-182}, 2^{-190}$. Here the weighted
-counts are bounded by rows (\lean{wcount\_le\_rows}) rather than by truncating in $|T|$.
+where $E_{\theta^2}$ and $E_\theta$ are the weighted counts with weights $\theta^2$ and
+$\theta$, $p_e \ge p$ includes the exceptional slots, and the tails charge pairs with more than
+$d_1$ (resp.\ $d_2$) degenerate slots the trivial bound. Cleared of denominators, ``$\le
+2^{-k}$'' is an integer inequality checked by \lean{decide +kernel} (\lean{numQ\_44\_full}
+etc.), with $d_1 = 27$, $d_2 = 19$ and $k = 382, 420, 472$.
 
 \subsection{A slot condition costs $1/q$}\label{sec:slotq}
 
-The window argument bounds the probability that a box polynomial has prescribed NTT values at
-$r$ given slots by $w^{-r}$, $w$ the box width ($2^{18}$ or $2^{20}$). The truth is about
-$q^{-r}$ ($q \approx 2^{23}$). Section \lean{PackingPart} proves
+The window argument bounds the probability that a polynomial with coefficients in a range of
+width $w$ has prescribed NTT values at $r$ given slots by $w^{-r}$ ($w = 2^{18}$ or $2^{20}$). The
+truth is about $q^{-r}$ ($q \approx 2^{23}$). Section \lean{PackingPart} proves
 \[
-  \#\{f \in \text{box of width } w : \hat f|_S = \tau\} \cdot q^{|S|} \le (w + 2nB)^n
+  \#\{f \in \text{range of width } w : \hat f|_S = \tau\} \cdot q^{|S|} \le (w + 2nB)^n
   \qquad\text{whenever } (B+1)^n > q^{|S|}
 \]
-(\lean{Packing.card\_coset\_le}), by packing:
+(\lean{Packing.card\_coset\_le}, $n = 256$), by packing:
 \begin{enumerate}
 \item Pigeonhole on $[0,B]^n$ gives a nonzero $v$ with $|v_s| \le B$ and $\hat v|_S = 0$.
 \item The multiples of $v$ in $R = \Z[X]/(X^n+1)$ keep $\hat{\ }|_S = 0$. Since $X^{256}+1$ is the
-  $512$-th cyclotomic polynomial, it is irreducible over $\mathbb Q$, so the negacyclic matrix of
-  $v$ is invertible over $\mathbb Q$ (section \lean{NcInvPart}, \lean{ncMat\_det\_ne\_zero}).
+  $512$-th cyclotomic polynomial, it is irreducible over $\mathbb Q$, so multiplication by $v$ is
+  invertible over $\mathbb Q$ (section \lean{NcInvPart}, \lean{ncMat\_det\_ne\_zero}).
   Every integer $x$ is then $x = v\cdot\lfloor v^{-1}x\rfloor + \mathrm{red}(x)$ with
   $|\mathrm{red}(x)_s| \le nB$ and the same values on $S$.
 \item Reducing the $q^{|S|}$ vectors of $[0,q)^{|S|}\times 0$ (distinct on $S$ by the window
   argument) gives $q^{|S|}$ short representatives; translating the solutions by them packs
-  $q^{|S|}$ disjoint copies into a box of width $w + 2nB$.
+  $q^{|S|}$ disjoint copies into a range of width $w + 2nB$.
 \end{enumerate}
-With $B = 5$ (valid up to $28$ slots, $6^{256} > q^{28}$) the constant $((w+2nB)/w)^n$ is about
-$2^{3.6}$ (ML-DSA-44) and $2^{0.9}$ (65/87). Section \lean{AltR0QPart} redoes the slot
-probabilities with $p = 1/q + (2\gamma_1)^{-(\ell-1)}$: \lean{prob\_deg\_ge\_q} (constant once) and
-\lean{prob\_deg\_exc\_q} (constant squared: two head conditions). \lean{var\_rel\_gen} takes
-these probabilities as hypotheses; the kernel checks (\lean{numQ\_44\_full} etc.) use
-$d_1 = 27$, $d_2 = 19$ and give $k = 382, 420, 472$.
-
-\paragraph{As a statement about $R_q$ (section \lean{RingFormPart}).} The instances above are
-phrased with flattened coefficient vectors and negacyclic matrices. Section \lean{RingFormPart}
-restates them over Mathlib's $R_q = $ \lean{AdjoinRoot} $(X^{256}+1)$ over $\Z_q$, so that the
-statement mentions nothing but the ring, boxes of integer coefficients and \lean{lowBits}:
-
-\begin{theorem}[\lean{RingForm.moment\_mldsa44}, \lean{\_65}, \lean{\_87}]
-Let $(k,\ell)$, $\gamma_1$, $\gamma_2$, $\beta$ be the ML-DSA-44/65/87 parameters,
-$\mu = \big(m(2(\gamma_2-\beta)-1)/q\big)^{256k}$ with $m = (q-1)/(2\gamma_2)$ the probability
-that a uniform $w \in R_q^k$ passes the r$_0$-check, $h_0 < \ell$, and $v \in \Z^{k\times 256}$
-with $\|v\|_\infty \le \beta$. For $A \in R_q^{k\times\ell}$ and a tail $t$ (polynomial $h_0$
-zero, the others with coefficients in $(-\gamma_1,\gamma_1]$) let
-\[
-  \rho(A,t) = \Pr_{y_0}\Big[\forall i, s:\ \big|\mathrm{LowBits}\big((A y)_{i,s}\big) - v_{i,s}\big|
-    < \gamma_2 - \beta\Big],\qquad y_{h_0} = y_0,\ y_j = t_j\ (j \ne h_0),
-\]
-with $y_0$ uniform on the full box or on the z-passing box of width $2(\gamma_1-\beta)-1$, and
-$(Ay)_{i,s}$ coefficient $s$ of the reduced representative of $\sum_j A_{ij} y_j \in R_q$. Then
-\[
-  \mathop{\mathbb E}_{A \in R_q^{k\times\ell}} \mathop{\mathbb E}_t\, (\rho(A,t) - \mu)^2
-  \le \mu^2\, 2^{-382},\ \mu^2\, 2^{-420},\ \mu^2\, 2^{-472}.
-\]
-\end{theorem}
-
-The bridge, in section \lean{RingForm} of \lean{RejOrder.lean} (which also states the timing
-leak bounds over $R_q$), is exact: \lean{coeffs\_mul} (a product in $R_q$ has the coefficients of the
-negacyclic matrix product, checked by evaluating at the $256$ roots of $X^{256}+1$ and inverting
-the Vandermonde matrix) and \lean{avg\_matrix} (uniform $A$ means uniform coefficients).
-The headline theorems below use the second moment only in this form (via
-\lean{var\_mldsa44\_ring} etc.), so this theorem is their only ML-DSA-specific computation.
+With $B = 5$ (valid up to $28$ slots, $6^{256} > q^{28}$) the constant $c = ((w+2nB)/w)^n$ is
+about $2^{3.6}$ (ML-DSA-44) and $2^{0.9}$ (65/87). It enters once for the degenerate-slot
+probability (\lean{prob\_deg\_ge\_q}) and squared for the exceptional one, which has two head
+conditions (\lean{prob\_deg\_exc\_q}).
 
 \subsection{Where the bound is loose}
 
 \begin{itemize}
-\item Triples with an exceptional slot still use the crude bound, and they dominate: with the
-  $1/q$ bound the main part would give about $2^{-517}$ for ML-DSA-44, the exceptional part
-  $2^{-386}$.
+\item Pairs with an exceptional slot use the unpaired bound, and they dominate: the main part
+  alone would give about $2^{-517}$ for ML-DSA-44, the exceptional part gives $2^{-386}$.
 \item Going from the second moment to $\mathop{\mathbb E}|\rho - \mu|$ halves the exponent.
 \end{itemize}
 
@@ -482,7 +461,7 @@ no closed form, so we use Section~\ref{sec:approx}.
 
 \paragraph{The defect.} With the head the first polynomial, an r$_0$ failure and ``z first fails
 at the head'' keep the same set, so together they move to the head fibre with probability
-$1 - q_h\,\rho_z(\text{tail})$, $q_h = (zw/2\gamma_1)^n$ the probability that the head passes z
+$1 - q_h\,\rho_z(\text{tail})$, $q_h = ((2(\gamma_1-\beta)-1)/2\gamma_1)^{256}$ the probability that the head passes z
 and $\rho_z$ the r$_0$ pass probability with the head in the z-passing box. The full-box $\rho$
 cancels. Each later failure point $i$ contributes a term with $y_2,\dots,y_i$ fresh, which after
 summing over the kept part is again a deviation of $\rho_z$ over a uniform tail. Centring (the
@@ -621,7 +600,7 @@ Section & Contents\\
 \lean{PackingPart} & a slot condition costs $1/q$ (\lean{card\_coset\_le})\\
 \lean{NcInvPart} & $X^{256}+1$ irreducible, so \lean{ncMat\_det\_ne\_zero}\\
 \lean{AltR0ExcPart} & probability of exceptional slots (\lean{prob\_deg\_exc})\\
-\lean{AltR0QPart} & slot probabilities with $1/q$ (\lean{prob\_deg\_ge\_q}, \dots)\\
+\lean{AltR0QPart} & degenerate-slot probabilities with $1/q$ (\lean{prob\_deg\_ge\_q}, \dots)\\
 \lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le},
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
