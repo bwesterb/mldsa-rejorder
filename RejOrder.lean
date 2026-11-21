@@ -3658,6 +3658,174 @@ end RejOrder
 end
 end Negacyclic
 
+section RingForm
+/-!
+# The ring `R_q = ℤ_q[X]/(X^256 + 1)`
+
+Mathlib's `AdjoinRoot (X^256 + 1)` over `ℤ_q`, its coefficients, and the bridge to the
+negacyclic matrices used above: a product in `R_q` has the coefficients of the negacyclic matrix
+product (`coeffs_mul`, by evaluating at the 256 roots of `X^256 + 1`), `ringMat A` is the matrix
+of `y ↦ A · y` on coefficient vectors (`ringMat_mulVec`), and averaging over `A ∈ R_q^{K×L}` is
+averaging over its coefficients (`avg_matrix`, `avg_ringMat`). The headlines are stated over
+`R_q` with these.
+-/
+
+open Finset Polynomial Matrix
+
+noncomputable section
+
+set_option maxRecDepth 10000
+
+namespace RejOrder
+
+/-- `X^256 + 1` over `ℤ_q`, `q = 8380417`. -/
+noncomputable abbrev polyR : (ZMod 8380417)[X] := X ^ 256 + 1
+
+lemma polyR_monic : polyR.Monic := by
+  simpa using monic_X_pow_add_C (1 : ZMod 8380417) (n := 256) (by norm_num)
+
+lemma polyR_natDegree : polyR.natDegree = 256 := by
+  simpa only [map_one] using natDegree_X_pow_add_C (n := 256) (r := (1 : ZMod 8380417))
+
+lemma polyR_ne_one : polyR ≠ 1 := fun h => by
+  have := polyR_natDegree; rw [h, natDegree_one] at this; norm_num at this
+
+/-- **The ring** `R_q = ℤ_q[X]/(X^256 + 1)` of ML-DSA (Mathlib's `AdjoinRoot`). -/
+abbrev Rq := AdjoinRoot polyR
+
+/-- Coefficient `s` of `w ∈ R_q`: that of its representative of degree `< 256`. -/
+noncomputable def coeffs (w : Rq) (s : Fin 256) : ZMod 8380417 :=
+  (AdjoinRoot.modByMonicHom polyR_monic w).coeff s
+
+/-- The element `∑ a_s X^s` of `R_q`. -/
+noncomputable def ofCoeffs (a : Fin 256 → ZMod 8380417) : Rq :=
+  AdjoinRoot.mk polyR (∑ s : Fin 256, C (a s) * X ^ (s : ℕ))
+
+/-- The element `∑ y_s X^s` of `R_q`, for integer `y`. -/
+noncomputable def ofInt (y : Fin 256 → ℤ) : Rq := ofCoeffs fun s => (y s : ZMod 8380417)
+
+lemma coeffs_ofCoeffs (a : Fin 256 → ZMod 8380417) : coeffs (ofCoeffs a) = a := by
+  funext s
+  have hdeg : (∑ s : Fin 256, C (a s) * X ^ (s : ℕ)).degree < polyR.degree := by
+    rw [degree_eq_natDegree polyR_monic.ne_zero, polyR_natDegree]
+    exact degree_sum_fin_lt a
+  simp only [coeffs, ofCoeffs, AdjoinRoot.modByMonicHom_mk,
+    (modByMonic_eq_self_iff polyR_monic).mpr hdeg, finsetSum_coeff, coeff_C_mul_X_pow]
+  rw [Finset.sum_eq_single s (fun b _ hb => if_neg (fun h => hb (Fin.ext h).symm))
+    (fun h => absurd (mem_univ s) h), if_pos rfl]
+
+lemma natDegree_rep (w : Rq) : (AdjoinRoot.modByMonicHom polyR_monic w).natDegree < 256 := by
+  obtain ⟨f, rfl⟩ := AdjoinRoot.mk_surjective w
+  rw [AdjoinRoot.modByMonicHom_mk, ← polyR_natDegree]
+  exact natDegree_modByMonic_lt _ polyR_monic polyR_ne_one
+
+lemma ofCoeffs_coeffs (w : Rq) : ofCoeffs (coeffs w) = w := by
+  have h := as_sum_range' _ 256 (natDegree_rep w)
+  rw [Finset.sum_range (fun i => monomial i ((AdjoinRoot.modByMonicHom polyR_monic w).coeff i))] at h
+  simp only [← C_mul_X_pow_eq_monomial] at h
+  conv_rhs => rw [← AdjoinRoot.mk_leftInverse polyR_monic w, h]
+  rfl
+
+/-- Coefficients identify `R_q` with `ℤ_q^256`. -/
+noncomputable def coeffsEquiv : Rq ≃ (Fin 256 → ZMod 8380417) where
+  toFun := coeffs
+  invFun := ofCoeffs
+  left_inv := ofCoeffs_coeffs
+  right_inv := coeffs_ofCoeffs
+
+noncomputable instance : Fintype Rq := Fintype.ofEquiv _ coeffsEquiv.symm
+
+lemma coeffs_sum {ι : Type*} (S : Finset ι) (f : ι → Rq) (s : Fin 256) :
+    coeffs (∑ j ∈ S, f j) s = ∑ j ∈ S, coeffs (f j) s := by
+  simp only [coeffs, map_sum, finsetSum_coeff]
+
+/-! ## Multiplication is negacyclic convolution -/
+
+/-- Evaluation at the `k`-th root of `X^256 + 1`. -/
+noncomputable def ev (k : Fin 256) : Rq →+* ZMod 8380417 :=
+  AdjoinRoot.lift (RingHom.id _) (zetaMLDSA k) (by simp [zetaMLDSA_root])
+
+lemma ev_ofCoeffs (k : Fin 256) (a : Fin 256 → ZMod 8380417) :
+    ev k (ofCoeffs a) = ∑ s : Fin 256, zetaMLDSA k ^ (s : ℕ) * a s := by
+  simp only [ev, ofCoeffs, AdjoinRoot.lift_mk, eval₂_finsetSum, eval₂_mul, eval₂_C, eval₂_X_pow,
+    RingHom.id_apply]
+  exact Finset.sum_congr rfl fun _ _ => mul_comm _ _
+
+lemma eq_of_ntt {u u' : Fin 256 → ZMod 8380417}
+    (h : ∀ k, ∑ s : Fin 256, zetaMLDSA k ^ (s : ℕ) * u s
+      = ∑ s : Fin 256, zetaMLDSA k ^ (s : ℕ) * u' s) : u = u' := by
+  rw [← sub_eq_zero]
+  refine Matrix.eq_zero_of_mulVec_eq_zero
+    (Matrix.det_vandermonde_ne_zero_iff.mpr zetaMLDSA_inj) (funext fun k => ?_)
+  simp only [Matrix.mulVec, dotProduct, Matrix.vandermonde_apply, Pi.sub_apply, mul_sub,
+    Finset.sum_sub_distrib, h k, sub_self, Pi.zero_apply]
+
+/-- Coefficients of a product in `R_q` are given by the negacyclic matrix. -/
+lemma coeffs_mul (a c : Fin 256 → ZMod 8380417) :
+    coeffs (ofCoeffs a * ofCoeffs c) = negacyclic a *ᵥ c := by
+  refine eq_of_ntt fun k => ?_
+  rw [isNTTMul_mldsa.mul, ← ev_ofCoeffs, ← ev_ofCoeffs, ← ev_ofCoeffs, ofCoeffs_coeffs, map_mul]
+
+/-- `A · y` in `R_q^K`, coefficient by coefficient, is the flattened `modMat` product. -/
+lemma modMat_mulVec_eq {K L : ℕ} (a : Fin K → Fin L → Fin 256 → ZMod 8380417)
+    (y : Fin (L * 256) → ZMod 8380417) (i : Fin K) (s : Fin 256) :
+    (modMat negacyclic a *ᵥ y) (finProdFinEquiv (i, s))
+      = coeffs (((Matrix.of fun i j => ofCoeffs (a i j)) *ᵥ fun j => ofCoeffs (blk y j)) i) s := by
+  rw [modMat_mulVec]
+  simp only [Matrix.mulVec, dotProduct, Matrix.of_apply, coeffs_sum, coeffs_mul]
+
+/-- Averaging over `A ∈ R_q^{K×L}` is averaging over its coefficients. -/
+lemma avg_matrix {K L : ℕ} (F : Matrix (Fin K) (Fin L) Rq → ℚ) :
+    avg F = avg (fun a : Fin K → Fin L → Fin 256 → ZMod 8380417 =>
+      F (Matrix.of fun i j => ofCoeffs (a i j))) := by
+  let e : (Fin K → Fin L → Fin 256 → ZMod 8380417) ≃ Matrix (Fin K) (Fin L) Rq :=
+    (Equiv.piCongrRight fun _ => Equiv.piCongrRight fun _ => coeffsEquiv.symm).trans
+      Matrix.of
+  unfold avg
+  rw [Fintype.card_congr e, ← Equiv.sum_comp e]
+  rfl
+
+/-- The matrix over `ℤ_q` of `y ↦ A · y` on coefficient vectors: entry `((i, s), (j, t))` is
+coefficient `s` of `A_ij · X^t` (`ringMat_mulVec`). -/
+noncomputable def ringMat {K L : ℕ} (A : Matrix (Fin K) (Fin L) Rq) :
+    Matrix (Fin (K * 256)) (Fin (L * 256)) (ZMod 8380417) :=
+  fun r c => coeffs (A (finProdFinEquiv.symm r).1 (finProdFinEquiv.symm c).1
+    * AdjoinRoot.root polyR ^ ((finProdFinEquiv.symm c).2 : ℕ)) (finProdFinEquiv.symm r).2
+
+lemma ofCoeffs_single (t : Fin 256) :
+    ofCoeffs (Pi.single t 1) = AdjoinRoot.root polyR ^ (t : ℕ) := by
+  rw [ofCoeffs, Finset.sum_eq_single t (fun b _ hb => by simp [Pi.single_apply, hb]) (by simp)]
+  simp [AdjoinRoot.mk_X]
+
+lemma ringMat_of {K L : ℕ} (a : Fin K → Fin L → Fin 256 → ZMod 8380417) :
+    ringMat (Matrix.of fun i j => ofCoeffs (a i j)) = modMat negacyclic a := by
+  ext r c
+  simp only [ringMat, modMat, Matrix.of_apply, ← ofCoeffs_single, coeffs_mul,
+    Matrix.mulVec_single_one]
+  rfl
+
+/-- `ringMat A` computes `A · y`: entry `(i, s)` of `ringMat A · y` is coefficient `s` of
+`(A · y)_i`, where `y_j ∈ R_q` has the coefficients of block `j`. -/
+lemma ringMat_mulVec {K L : ℕ} (A : Matrix (Fin K) (Fin L) Rq)
+    (y : Fin (L * 256) → ZMod 8380417) (i : Fin K) (s : Fin 256) :
+    (ringMat A *ᵥ y) (finProdFinEquiv (i, s))
+      = coeffs ((A *ᵥ fun j => ofCoeffs (blk y j)) i) s := by
+  have hA : A = Matrix.of fun i j => ofCoeffs (coeffs (A i j)) := by
+    ext i j; simp [ofCoeffs_coeffs]
+  conv_lhs => rw [hA]
+  rw [ringMat_of, modMat_mulVec_eq, ← hA]
+
+/-- Averaging over `A ∈ R_q^{K×L}` through `ringMat` is averaging over the coefficient form. -/
+lemma avg_ringMat {K L : ℕ} (F : Matrix (Fin (K * 256)) (Fin (L * 256)) (ZMod 8380417) → ℚ) :
+    avg (fun A : Matrix (Fin K) (Fin L) Rq => F (ringMat A))
+      = avg (fun a : Fin K → Fin L → Fin 256 → ZMod 8380417 => F (modMat negacyclic a)) := by
+  rw [avg_matrix]; simp only [ringMat_of]
+
+end RejOrder
+
+end
+end RingForm
+
 section Numeric
 /-!
 # Evaluating the error bound
@@ -5425,24 +5593,30 @@ theorem params_mldsa87 : Params 8380417 (2 ^ 19) 261888 120 16 := by constructor
 /-- **ML-DSA-44.** -/
 theorem leak_mldsa44 {u : Fin (4 * 256) → ℤ} {v : Fin (4 * 256) → ℤ}
     (hu : Bounded 78 u) (hv : Bounded 78 v) :
-    avg (fun a => leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) u v) ≤ 1 / 2 ^ 289 :=
-  leak_avg_module_gap params_mldsa44 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
+    avg (fun A : Matrix (Fin 4) (Fin 4) Rq => leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) u v)
+      ≤ 1 / 2 ^ 289 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 17) 95232 78 44 M u v).trans_le ?_
+  exact leak_avg_module_gap params_mldsa44 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
     330 3600 22 35 62 307 289 (by norm_num) (by norm_num) (by norm_num) (by norm_num)
     (by norm_num) (by decide +kernel) (by decide +kernel) hu hv
 
 /-- **ML-DSA-65.** -/
 theorem leak_mldsa65 {u : Fin (5 * 256) → ℤ} {v : Fin (6 * 256) → ℤ}
     (hu : Bounded 196 u) (hv : Bounded 196 v) :
-    avg (fun a => leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) u v) ≤ 1 / 2 ^ 418 :=
-  leak_avg_module_gap params_mldsa65 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
+    avg (fun A : Matrix (Fin 6) (Fin 5) Rq => leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) u v)
+      ≤ 1 / 2 ^ 418 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 196 16 M u v).trans_le ?_
+  exact leak_avg_module_gap params_mldsa65 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
     460 5500 19 36 88 433 418 (by norm_num) (by norm_num) (by norm_num) (by norm_num)
     (by norm_num) (by decide +kernel) (by decide +kernel) hu hv
 
 /-- **ML-DSA-87.** -/
 theorem leak_mldsa87 {u : Fin (7 * 256) → ℤ} {v : Fin (8 * 256) → ℤ}
     (hu : Bounded 120 u) (hv : Bounded 120 v) :
-    avg (fun a => leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) u v) ≤ 1 / 2 ^ 568 :=
-  leak_avg_module_gap params_mldsa87 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
+    avg (fun A : Matrix (Fin 8) (Fin 7) Rq => leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) u v)
+      ≤ 1 / 2 ^ 568 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 120 16 M u v).trans_le ?_
+  exact leak_avg_module_gap params_mldsa87 isNTTMul_mldsa zetaMLDSA_root (by norm_num)
     550 7300 16 32 108 581 568 (by norm_num) (by norm_num) (by norm_num) (by norm_num)
     (by norm_num) (by decide +kernel) (by decide +kernel) hu hv
 
@@ -5500,9 +5674,9 @@ theorem bad_frac {mat : P → Matrix (Fin m) (Fin l) (ZMod q)} {ε : ℚ}
 theorem bad_frac_mldsa44 {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (4 * 256) → ℤ) (vs : ι → Fin (4 * 256) → ℤ)
     (hus : ∀ i, Bounded 78 (us i)) (hvs : ∀ i, Bounded 78 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 289) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa44 hu hv) w hw us vs hus hvs hη
 
@@ -5510,9 +5684,9 @@ theorem bad_frac_mldsa44 {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i,
 theorem bad_frac_mldsa65 {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (5 * 256) → ℤ) (vs : ι → Fin (6 * 256) → ℤ)
     (hus : ∀ i, Bounded 196 (us i)) (hvs : ∀ i, Bounded 196 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 418) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa65 hu hv) w hw us vs hus hvs hη
 
@@ -5520,9 +5694,9 @@ theorem bad_frac_mldsa65 {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i,
 theorem bad_frac_mldsa87 {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (7 * 256) → ℤ) (vs : ι → Fin (8 * 256) → ℤ)
     (hus : ∀ i, Bounded 120 (us i)) (hvs : ∀ i, Bounded 120 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 568) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa87 hu hv) w hw us vs hus hvs hη
 

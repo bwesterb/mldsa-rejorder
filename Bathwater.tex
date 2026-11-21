@@ -434,6 +434,36 @@ probabilities with $p = 1/q + (2\gamma_1)^{-(\ell-1)}$: \lean{prob\_deg\_ge\_q} 
 these probabilities as hypotheses; the kernel checks (\lean{numQ\_44\_full} etc.) use
 $d_1 = 27$, $d_2 = 19$ and give $k = 382, 420, 472$.
 
+\paragraph{As a statement about $R_q$ (section \lean{RingFormPart}).} The instances above are
+phrased with flattened coefficient vectors and negacyclic matrices. Section \lean{RingFormPart}
+restates them over Mathlib's $R_q = $ \lean{AdjoinRoot} $(X^{256}+1)$ over $\Z_q$, so that the
+statement mentions nothing but the ring, boxes of integer coefficients and \lean{lowBits}:
+
+\begin{theorem}[\lean{RingForm.moment\_mldsa44}, \lean{\_65}, \lean{\_87}]
+Let $(k,\ell)$, $\gamma_1$, $\gamma_2$, $\beta$ be the ML-DSA-44/65/87 parameters,
+$\mu = \big(m(2(\gamma_2-\beta)-1)/q\big)^{256k}$ with $m = (q-1)/(2\gamma_2)$ the probability
+that a uniform $w \in R_q^k$ passes the r$_0$-check, $h_0 < \ell$, and $v \in \Z^{k\times 256}$
+with $\|v\|_\infty \le \beta$. For $A \in R_q^{k\times\ell}$ and a tail $t$ (polynomial $h_0$
+zero, the others with coefficients in $(-\gamma_1,\gamma_1]$) let
+\[
+  \rho(A,t) = \Pr_{y_0}\Big[\forall i, s:\ \big|\mathrm{LowBits}\big((A y)_{i,s}\big) - v_{i,s}\big|
+    < \gamma_2 - \beta\Big],\qquad y_{h_0} = y_0,\ y_j = t_j\ (j \ne h_0),
+\]
+with $y_0$ uniform on the full box or on the z-passing box of width $2(\gamma_1-\beta)-1$, and
+$(Ay)_{i,s}$ coefficient $s$ of the reduced representative of $\sum_j A_{ij} y_j \in R_q$. Then
+\[
+  \mathop{\mathbb E}_{A \in R_q^{k\times\ell}} \mathop{\mathbb E}_t\, (\rho(A,t) - \mu)^2
+  \le \mu^2\, 2^{-382},\ \mu^2\, 2^{-420},\ \mu^2\, 2^{-472}.
+\]
+\end{theorem}
+
+The bridge, in section \lean{RingForm} of \lean{RejOrder.lean} (which also states the RejOrder
+and product-Fourier leak bounds over $R_q$), is exact: \lean{coeffs\_mul} (a product in $R_q$ has the coefficients of the
+negacyclic matrix product, checked by evaluating at the $256$ roots of $X^{256}+1$ and inverting
+the Vandermonde matrix) and \lean{avg\_matrix} (uniform $A$ means uniform coefficients).
+The headline theorems below use the second moment only in this form (via
+\lean{var\_mldsa44\_ring} etc.), so this theorem is their only ML-DSA-specific computation.
+
 \subsection{Where the bound is loose}
 
 \begin{itemize}
@@ -595,6 +625,7 @@ Section & Contents\\
 \lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le}, \lean{wcount\_le\_rows},
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
+\lean{RingFormPart} & the same over $R_q = \Z_q[X]/(X^{256}+1)$, \lean{moment\_mldsa*}\\
 \lean{AltR0FinalPart} & instantiation for ML-DSA, \lean{altR0\_mldsa44/65/87}\\
 \lean{AltR0JointPart} & alt-r0 per attempt, \lean{altR0\_joint\_mldsa*}\\
 \lean{Alg3Part} & Algorithm 3: \lean{alg3\_defect\_le}, \lean{alg3\_mldsa*}\\

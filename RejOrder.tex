@@ -503,6 +503,14 @@ $\widehat{ac}(k) = \hat a(k)\,\hat c(k)$ where $\hat a(k) = \sum_s a_s\zeta_k^s$
 \noindent For ML-DSA, $\zeta_k = 1753^{2k+1}$ (proved: $1753^{256} = -1$ and $1753$ has order
 $512$; \lean{isNTTMul\_mldsa}).
 
+\noindent In Lean, Theorem~\ref{thm:main} is stated over $\Rq$ itself: section \lean{RingForm}
+takes $\Rq$ = \lean{AdjoinRoot} $(X^{256}+1)$ from Mathlib, $A$ uniform in
+$\Rq^{K\times L}$, and $M = $ \lean{ringMat}$\,A$, the $\Zq$-matrix of $y \mapsto Ay$ on
+coefficient vectors (\lean{ringMat\_mulVec}). The bridge to the negacyclic matrices is exact: a
+product in $\Rq$ has the coefficients of the negacyclic product (\lean{coeffs\_mul}, by
+evaluating at the $\zeta_k$ and inverting the Vandermonde matrix), and a uniform $A$ has uniform
+coefficients (\lean{avg\_ringMat}).
+
 \paragraph{Dual coordinates.}
 Write a test vector $\lambda$ on row $i$ of the output as
 $\lambda_{(i,s)} = \sum_k \zeta_k^s\,\tilde\lambda_i(k)$, which is always possible since the
@@ -792,6 +800,7 @@ Section & Content \\
 \lean{ModuleCount}, \lean{Profile} & counting test vectors by support; $Q(t)$ \\
 \lean{ModuleMain} & Cauchy--Schwarz/Jensen; \lean{sparseFailAvg\_module}(\lean{\_cap}) \\
 \lean{Negacyclic} & $\Zq[X]/(X^n+1)$ satisfies \lean{IsNTTMul}; ML-DSA roots \\
+\lean{RingForm} & $\Rq$ as Mathlib's \lean{AdjoinRoot}; \lean{coeffs\_mul}, \lean{ringMat}, \lean{avg\_ringMat} \\
 \lean{Numeric} & evaluation of the earlier bounds \\
 \lean{GapCount}, \lean{GapComb} & cyclic free runs; counting sets by free runs \\
 \lean{GapEval}, \lean{GapSum} & Kronecker substitution; regrouping the sum over $T$ \\

@@ -18,7 +18,9 @@ This file collects, in order:
 * `AltR0SharpPart`: the sharper second moment by pairing orthogonal test vectors, and its
   kernel-checked ML-DSA instances.
 * `AltR0GenPart`: the sharper second moment with general slot probabilities (`var_rel_gen`) and
-  its `1/q` ML-DSA instances (`var_mldsa44_q` etc.), used by the headlines.
+  its `1/q` ML-DSA instances (`var_mldsa44_q` etc.).
+* `RingFormPart`: the same instances stated over `R_q = ℤ_q[X]/(X^256 + 1)` itself
+  (`moment_mldsa44` etc.); the headlines use them in this form.
 * `AltR0FinalPart`: alt-r0 for ML-DSA-44/65/87 end to end.
 * `MinEntropyPart`: min-entropy of the commitment with a fresh head.
 * `RejOrderFourierPart`: the RejOrder leak bound redone with the product-Fourier bound.
@@ -5402,6 +5404,196 @@ end
 
 end AltR0GenPart
 
+section RingFormPart
+
+/-!
+# The second moment as a statement about `R_q = ℤ_q[X]/(X^256 + 1)`
+
+`var_mldsa44_q` etc. are stated with flattened coefficient vectors and negacyclic matrices. Here
+they are restated over `RejOrder.Rq`, Mathlib's `AdjoinRoot (X^256 + 1)`: `A` is uniform in
+`R_q^{k×ℓ}`, the products `A · y` are ring products, and the r₀ check reads the coefficients of the
+reduced representative. The bridge (section `RingForm` of `RejOrder.lean`) is `coeffs_mul`
+(multiplication in `R_q` is the negacyclic matrix, checked by evaluating at the 256 roots of
+`X^256 + 1`) and `avg_matrix` (a uniform `A` has uniform coefficients); both are equalities,
+so nothing is lost in the restatement. The headlines go through `moment_mldsa44` etc. (via
+`var_mldsa44_ring`), so these ring statements are their only ML-DSA-specific computational
+input.
+-/
+
+open Finset Polynomial Matrix
+
+noncomputable section
+
+set_option maxRecDepth 10000
+
+namespace Bathwater.RingForm
+open RejOrder AltR0
+
+/-! ## The quantity bounded -/
+
+/-- The r₀ check on `w ∈ R_q^K` with shift `v`: every coefficient has
+`|LowBits − v| < γ₂ − β`. -/
+def Pass {K : ℕ} (γ₂ β : ℕ) (v : Fin K → Fin 256 → ℤ) (w : Fin K → Rq) : Prop :=
+  ∀ i s, |lowBits 8380417 γ₂ (coeffs (w i) s) - v i s| < (γ₂ : ℤ) - β
+
+noncomputable instance {K : ℕ} (γ₂ β : ℕ) (v : Fin K → Fin 256 → ℤ) :
+    DecidablePred (Pass γ₂ β v) := fun _ => Classical.dec _
+
+/-- `ρ(A, t)`: probability over the head `y₀` (uniform on `hbox lo w`) that
+`A · y` passes the r₀ check, where `y` is `y₀` at position `h₀` and `t` elsewhere. -/
+noncomputable def rho {K L : ℕ} (γ₂ β : ℕ) (v : Fin K → Fin 256 → ℤ) (lo : Fin 256 → ℤ) (w : ℕ)
+    (h₀ : Fin L) (A : Matrix (Fin K) (Fin L) Rq) (t : Fin L → Fin 256 → ℤ) : ℚ :=
+  prob (hbox lo w) fun y₀ => Pass γ₂ β v (A *ᵥ fun j => ofInt (if j = h₀ then y₀ else t j))
+
+/-- Flattening of `v`. -/
+def flatV {K : ℕ} (v : Fin K → Fin 256 → ℤ) : Fin (K * 256) → ℤ :=
+  fun r => v (finProdFinEquiv.symm r).1 (finProdFinEquiv.symm r).2
+
+lemma rhoC_eq {K L : ℕ} (γ₂ β : ℕ) (v : Fin K → Fin 256 → ℤ) (lo : Fin 256 → ℤ) (w : ℕ)
+    (h₀ : Fin L) (a : Fin K → Fin L → Fin 256 → ZMod 8380417) (t : Fin L → Fin 256 → ℤ) :
+    rhoC negacyclic γ₂ β (flatV v) lo w h₀ a t
+      = rho γ₂ β v lo w h₀ (Matrix.of fun i j => ofCoeffs (a i j)) t := by
+  unfold rhoC rho
+  refine prob_congr _ fun y₀ _ => ?_
+  have hblk : (fun j => ofCoeffs (blk (zc (q := 8380417) (join h₀ y₀ t)) j))
+      = fun j => ofInt (if j = h₀ then y₀ else t j) := by
+    funext j; rw [blk_join]; unfold ofInt; split_ifs <;> rfl
+  simp only [Fintype.mem_piFinset, good, Finset.mem_filter, Finset.mem_univ, true_and, not_le,
+    Pass]
+  rw [← hblk, ← finProdFinEquiv.forall_congr_right]
+  simp only [Prod.forall, modMat_mulVec_eq, flatV, Equiv.symm_apply_apply]
+
+/-! ## ML-DSA -/
+
+/-- **ML-DSA-44: the second moment, a statement about `R_q` alone.** Let `A` be uniform in
+`R_q^{4×4}`, `t` uniform on the tail box (polynomial `h₀` zero, the others with coefficients in
+`(-2^17, 2^17]`), and `y₀` uniform on a head box of width `w` (the full box or the z-passing box).
+For every shift `v` with `‖v‖∞ ≤ 78`, the probability `ρ(A, t)` over `y₀` that `A · y` passes the
+r₀ check satisfies `E_A E_t (ρ − μ)² ≤ μ² / 2^382`, with `μ` the pass probability of a uniform
+`w ∈ R_q^4`. -/
+theorem moment_mldsa44 (v : Fin 4 → Fin 256 → ℤ) (hv : ∀ i s, |v i s| ≤ 78)
+    {lo : Fin 256 → ℤ} {w : ℕ} (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
+    avg (fun A : Matrix (Fin 4) (Fin 4) Rq =>
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rho 95232 78 v lo w h₀ A t
+          - (44 * (2 * (95232 - 78) - 1) / 8380417 : ℚ) ^ (4 * 256)) ^ 2)
+          / (tbox (n := 256) (2 ^ 17) h₀).card)
+      ≤ ((44 * (2 * (95232 - 78) - 1) / 8380417 : ℚ) ^ (4 * 256)) ^ 2 / 2 ^ 382 := by
+  have hvf : Bounded 78 (flatV v) := fun r => hv _ _
+  have hμ : ∏ r, ((good (q := 8380417) 95232 78 (flatV v) r).card : ℚ) / 8380417
+      = (44 * (2 * (95232 - 78) - 1) / 8380417 : ℚ) ^ (4 * 256) := by
+    simp only [card_good params_mldsa44 hvf, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [avg_matrix]
+  simp only [← rhoC_eq, ← hμ]
+  exact var_mldsa44_q hvf hw h₀
+
+/-- **ML-DSA-65: the second moment, a statement about `R_q` alone.** Let `A` be uniform in
+`R_q^{6×5}`, `t` uniform on the tail box (polynomial `h₀` zero, the others with coefficients in
+`(-2^19, 2^19]`), and `y₀` uniform on a head box of width `w` (the full box or the z-passing box).
+For every shift `v` with `‖v‖∞ ≤ 196`, the probability `ρ(A, t)` over `y₀` that `A · y` passes the
+r₀ check satisfies `E_A E_t (ρ − μ)² ≤ μ² / 2^420`, with `μ` the pass probability of a uniform
+`w ∈ R_q^6`. -/
+theorem moment_mldsa65 (v : Fin 6 → Fin 256 → ℤ) (hv : ∀ i s, |v i s| ≤ 196)
+    {lo : Fin 256 → ℤ} {w : ℕ} (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
+    avg (fun A : Matrix (Fin 6) (Fin 5) Rq =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rho 261888 196 v lo w h₀ A t
+          - (16 * (2 * (261888 - 196) - 1) / 8380417 : ℚ) ^ (6 * 256)) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ ((16 * (2 * (261888 - 196) - 1) / 8380417 : ℚ) ^ (6 * 256)) ^ 2 / 2 ^ 420 := by
+  have hvf : Bounded 196 (flatV v) := fun r => hv _ _
+  have hμ : ∏ r, ((good (q := 8380417) 261888 196 (flatV v) r).card : ℚ) / 8380417
+      = (16 * (2 * (261888 - 196) - 1) / 8380417 : ℚ) ^ (6 * 256) := by
+    simp only [card_good params_mldsa65 hvf, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [avg_matrix]
+  simp only [← rhoC_eq, ← hμ]
+  exact var_mldsa65_q hvf hw h₀
+
+/-- **ML-DSA-87: the second moment, a statement about `R_q` alone.** Let `A` be uniform in
+`R_q^{8×7}`, `t` uniform on the tail box (polynomial `h₀` zero, the others with coefficients in
+`(-2^19, 2^19]`), and `y₀` uniform on a head box of width `w` (the full box or the z-passing box).
+For every shift `v` with `‖v‖∞ ≤ 120`, the probability `ρ(A, t)` over `y₀` that `A · y` passes the
+r₀ check satisfies `E_A E_t (ρ − μ)² ≤ μ² / 2^472`, with `μ` the pass probability of a uniform
+`w ∈ R_q^8`. -/
+theorem moment_mldsa87 (v : Fin 8 → Fin 256 → ℤ) (hv : ∀ i s, |v i s| ≤ 120)
+    {lo : Fin 256 → ℤ} {w : ℕ} (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
+    avg (fun A : Matrix (Fin 8) (Fin 7) Rq =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rho 261888 120 v lo w h₀ A t
+          - (16 * (2 * (261888 - 120) - 1) / 8380417 : ℚ) ^ (8 * 256)) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ ((16 * (2 * (261888 - 120) - 1) / 8380417 : ℚ) ^ (8 * 256)) ^ 2 / 2 ^ 472 := by
+  have hvf : Bounded 120 (flatV v) := fun r => hv _ _
+  have hμ : ∏ r, ((good (q := 8380417) 261888 120 (flatV v) r).card : ℚ) / 8380417
+      = (16 * (2 * (261888 - 120) - 1) / 8380417 : ℚ) ^ (8 * 256) := by
+    simp only [card_good params_mldsa87 hvf, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [avg_matrix]
+  simp only [← rhoC_eq, ← hμ]
+  exact var_mldsa87_q hvf hw h₀
+
+set_option maxHeartbeats 1000000 in
+/-- `var_mldsa44_q` recovered from the ring statement `moment_mldsa44`; the headlines use this
+one, so the ring statement is their only ML-DSA-specific input. -/
+theorem var_mldsa44_ring {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 17 ∨ w = 2 * (2 ^ 17 - 78) - 1) (h₀ : Fin 4) :
+    avg (fun a : Fin 4 → Fin 4 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 17) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 95232 78 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 17) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 382 := by
+  set v' : Fin 4 → Fin 256 → ℤ := fun i s => v (finProdFinEquiv (i, s))
+  have hflat : flatV v' = v := funext fun r => by simp [flatV, v']
+  have h := moment_mldsa44 v' (fun i s => hv _) (lo := lo) hw h₀
+  rw [avg_matrix] at h
+  simp only [← rhoC_eq, hflat] at h
+  have hμ : ∏ r, ((good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417
+      = (44 * (2 * (95232 - 78) - 1) / 8380417 : ℚ) ^ (4 * 256) := by
+    simp only [card_good params_mldsa44 hv, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [hμ]; exact h
+
+set_option maxHeartbeats 1000000 in
+/-- `var_mldsa65_q` recovered from the ring statement `moment_mldsa65`; the headlines use this
+one, so the ring statement is their only ML-DSA-specific input. -/
+theorem var_mldsa65_ring {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 196) - 1) (h₀ : Fin 5) :
+    avg (fun a : Fin 6 → Fin 5 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 196 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 420 := by
+  set v' : Fin 6 → Fin 256 → ℤ := fun i s => v (finProdFinEquiv (i, s))
+  have hflat : flatV v' = v := funext fun r => by simp [flatV, v']
+  have h := moment_mldsa65 v' (fun i s => hv _) (lo := lo) hw h₀
+  rw [avg_matrix] at h
+  simp only [← rhoC_eq, hflat] at h
+  have hμ : ∏ r, ((good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417
+      = (16 * (2 * (261888 - 196) - 1) / 8380417 : ℚ) ^ (6 * 256) := by
+    simp only [card_good params_mldsa65 hv, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [hμ]; exact h
+
+set_option maxHeartbeats 1000000 in
+/-- `var_mldsa87_q` recovered from the ring statement `moment_mldsa87`; the headlines use this
+one, so the ring statement is their only ML-DSA-specific input. -/
+theorem var_mldsa87_ring {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) {lo : Fin 256 → ℤ} {w : ℕ}
+    (hw : w = 2 * 2 ^ 19 ∨ w = 2 * (2 ^ 19 - 120) - 1) (h₀ : Fin 7) :
+    avg (fun a : Fin 8 → Fin 7 → Fin 256 → ZMod 8380417 =>
+        (∑ t ∈ tbox (2 ^ 19) h₀, (rhoC (negacyclic (q := 8380417) (n := 256)) 261888 120 v lo w h₀ a t
+          - ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2)
+          / (tbox (n := 256) (2 ^ 19) h₀).card)
+      ≤ (∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417) ^ 2 / 2 ^ 472 := by
+  set v' : Fin 8 → Fin 256 → ℤ := fun i s => v (finProdFinEquiv (i, s))
+  have hflat : flatV v' = v := funext fun r => by simp [flatV, v']
+  have h := moment_mldsa87 v' (fun i s => hv _) (lo := lo) hw h₀
+  rw [avg_matrix] at h
+  simp only [← rhoC_eq, hflat] at h
+  have hμ : ∏ r, ((good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417
+      = (16 * (2 * (261888 - 120) - 1) / 8380417 : ℚ) ^ (8 * 256) := by
+    simp only [card_good params_mldsa87 hv, prod_const, card_univ, Fintype.card_fin]; norm_num
+  rw [hμ]; exact h
+
+end Bathwater.RingForm
+
+end
+
+end RingFormPart
+
 section AltR0FinalPart
 
 /-!
@@ -6339,7 +6531,7 @@ lemma avg_X2_44 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (4 * 256) �
       mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa44_q (hv c) (lo := fun _ => -(((2 ^ 17) : ℕ) : ℤ) + 1)
+  have := Bathwater.RingForm.var_mldsa44_ring (hv c) (lo := fun _ => -(((2 ^ 17) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 17)) (Or.inl rfl) h₀
   rw [mu_eq_44 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -6350,7 +6542,7 @@ lemma avg_Xz2_44 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (4 * 256) �
       mu 8380417 95232 78 44 4 256 ^ 2 * (1 / 2 ^ 382) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa44_q (hv c) (lo := zlo (2 ^ 17) 78 h₀ (u c)) (w := zw (2 ^ 17) 78)
+  have := Bathwater.RingForm.var_mldsa44_ring (hv c) (lo := zlo (2 ^ 17) 78 h₀ (u c)) (w := zw (2 ^ 17) 78)
     (Or.inr rfl) h₀
   rw [mu_eq_44 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -6452,7 +6644,7 @@ lemma avg_X2_65 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (6 * 256) �
       mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa65_q (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+  have := Bathwater.RingForm.var_mldsa65_ring (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
   rw [mu_eq_65 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -6463,7 +6655,7 @@ lemma avg_Xz2_65 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (5 * 256) �
       mu 8380417 261888 196 16 6 256 ^ 2 * (1 / 2 ^ 420) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa65_q (hv c) (lo := zlo (2 ^ 19) 196 h₀ (u c)) (w := zw (2 ^ 19) 196)
+  have := Bathwater.RingForm.var_mldsa65_ring (hv c) (lo := zlo (2 ^ 19) 196 h₀ (u c)) (w := zw (2 ^ 19) 196)
     (Or.inr rfl) h₀
   rw [mu_eq_65 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -6565,7 +6757,7 @@ lemma avg_X2_87 {C : Type*} [Fintype C] [Nonempty C] (v : C → Fin (8 * 256) �
       mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_X2_le
   intro c
-  have := AltR0.var_mldsa87_q (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
+  have := Bathwater.RingForm.var_mldsa87_ring (hv c) (lo := fun _ => -(((2 ^ 19) : ℕ) : ℤ) + 1)
     (w := 2 * (2 ^ 19)) (Or.inl rfl) h₀
   rw [mu_eq_87 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -6576,7 +6768,7 @@ lemma avg_Xz2_87 {C : Type*} [Fintype C] [Nonempty C] (u : C → Fin (7 * 256) �
       mu 8380417 261888 120 16 8 256 ^ 2 * (1 / 2 ^ 472) := by
   apply avg_Xz2_le
   intro c
-  have := AltR0.var_mldsa87_q (hv c) (lo := zlo (2 ^ 19) 120 h₀ (u c)) (w := zw (2 ^ 19) 120)
+  have := Bathwater.RingForm.var_mldsa87_ring (hv c) (lo := zlo (2 ^ 19) 120 h₀ (u c)) (w := zw (2 ^ 19) 120)
     (Or.inr rfl) h₀
   rw [mu_eq_87 (hv c)] at this
   rw [mul_one_div]; exact this
@@ -7523,7 +7715,9 @@ theorem numR_44 : 2 ^ (2 * 417) * numR 330 8380417 256 4 (8380417 - 44 * (2 * (9
 /-- **ML-DSA-44, product-Fourier route.** -/
 theorem leak_mldsa44_fourier {u : Fin (4 * 256) → ℤ} {v : Fin (4 * 256) → ℤ}
     (hu : Bounded 78 u) (hv : Bounded 78 v) :
-    avg (fun a => leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) u v) ≤ 1 / 2 ^ 405 := by
+    avg (fun A : Matrix (Fin 4) (Fin 4) Rq => leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) u v)
+      ≤ 1 / 2 ^ 405 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 17) 95232 78 44 M u v).trans_le ?_
   refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hu hv
     (by norm_num) 330 19 417 numR_44).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
@@ -7539,7 +7733,9 @@ theorem numR_65 : 2 ^ (2 * 560) * numR 330 8380417 256 6 (8380417 - 16 * (2 * (2
 /-- **ML-DSA-65, product-Fourier route.** -/
 theorem leak_mldsa65_fourier {u : Fin (5 * 256) → ℤ} {v : Fin (6 * 256) → ℤ}
     (hu : Bounded 196 u) (hv : Bounded 196 v) :
-    avg (fun a => leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) u v) ≤ 1 / 2 ^ 547 := by
+    avg (fun A : Matrix (Fin 6) (Fin 5) Rq => leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) u v)
+      ≤ 1 / 2 ^ 547 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 196 16 M u v).trans_le ?_
   refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hu hv
     (by norm_num) 330 20 560 numR_65).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
@@ -7555,7 +7751,9 @@ theorem numR_87 : 2 ^ (2 * 742) * numR 330 8380417 256 8 (8380417 - 16 * (2 * (2
 /-- **ML-DSA-87, product-Fourier route.** -/
 theorem leak_mldsa87_fourier {u : Fin (7 * 256) → ℤ} {v : Fin (8 * 256) → ℤ}
     (hu : Bounded 120 u) (hv : Bounded 120 v) :
-    avg (fun a => leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) u v) ≤ 1 / 2 ^ 729 := by
+    avg (fun A : Matrix (Fin 8) (Fin 7) Rq => leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) u v)
+      ≤ 1 / 2 ^ 729 := by
+  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 120 16 M u v).trans_le ?_
   refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hu hv
     (by norm_num) 330 23 742 numR_87).trans ?_
   rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
@@ -7568,9 +7766,9 @@ theorem leak_mldsa87_fourier {u : Fin (7 * 256) → ℤ} {v : Fin (8 * 256) → 
 theorem bad_frac_mldsa44_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (4 * 256) → ℤ) (vs : ι → Fin (4 * 256) → ℤ)
     (hus : ∀ i, Bounded 78 (us i)) (hvs : ∀ i, Bounded 78 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 17) 95232 78 44 (mldsaMat 4 4 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 4 → Fin 4 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 405) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa44_fourier hu hv) w hw us vs hus hvs hη
 
@@ -7579,9 +7777,9 @@ theorem bad_frac_mldsa44_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw 
 theorem bad_frac_mldsa65_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (5 * 256) → ℤ) (vs : ι → Fin (6 * 256) → ℤ)
     (hus : ∀ i, Bounded 196 (us i)) (hvs : ∀ i, Bounded 196 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 196 16 (mldsaMat 6 5 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 6 → Fin 5 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 547) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa65_fourier hu hv) w hw us vs hus hvs hη
 
@@ -7590,9 +7788,9 @@ theorem bad_frac_mldsa65_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw 
 theorem bad_frac_mldsa87_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
     (us : ι → Fin (7 * 256) → ℤ) (vs : ι → Fin (8 * 256) → ℤ)
     (hus : ∀ i, Bounded 120 (us i)) (hvs : ∀ i, Bounded 120 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun a => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 120 16 (mldsaMat 8 7 a) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Fin 8 → Fin 7 → Fin 256 → ZMod 8380417)
+    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq => η ≤ ∑ i, w i *
+        leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) (us i) (vs i)).card : ℚ)
+        / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
       ≤ (∑ i, w i) * (1 / 2 ^ 729) / η :=
   bad_frac (fun _ _ hu hv => leak_mldsa87_fourier hu hv) w hw us vs hus hvs hη
 
