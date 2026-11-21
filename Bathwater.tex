@@ -334,7 +334,7 @@ ML-DSA-87 & $\le 2^{-157}$ & $\le 2^{-155}$ & $\le 2^{-156}$\\
 \end{tabular}
 \end{center}
 The last two columns hold for every $A$ outside the bad set. The bad fraction scales as
-$2\cdot 2^{-k}/\varepsilon^2$ ($k = 382, 420, 472$) and the distance as $4\varepsilon$, so the
+$2\cdot 2^{-K}/\varepsilon^2$ ($K = 382, 420, 472$) and the distance as $4\varepsilon$, so the
 trade-off can be moved; e.g.\ keeping the distance at $2^{-95}$ for ML-DSA-44 makes the bad
 fraction $2^{-187}$.
 \end{theorem}
@@ -354,69 +354,155 @@ attempts, which is what timing reveals, and justifies an attempt cap such as CIR
 
 \subsection{Why it works: the second moment over $A$}
 
+\paragraph{The idea in one paragraph.}
+$\rho_c(t)$ would be exactly $\mu$ if $w = Ay$ were uniform. With the tail $t$ fixed and only
+$y_{h_0}$ fresh, $w$ is far from uniform for a single $A$, but the r$_0$-check only asks whether
+$w$ lies in a \emph{product} set, one set per coefficient. A product set can tell $Ay$ from
+uniform only through a linear relation among few coefficients of $Ay$ that holds for unusually
+many $y$. The ring structure confines such relations to NTT slots where two nonces sharing the
+tail are linearly dependent, which are rare, and a relation living on few slots must involve many
+coefficients. The argument has the same shape as the one in the companion note on
+\lean{RejOrder.lean} (its Steps~3 and~4), which explains the shared parts in more detail. Here
+the pairs of nonces share their tail, which changes which slots are degenerate and allows a
+sharper count.
+
+\paragraph{From one tail to pairs of nonces.}
 Fix $c$ (so the shift $v = c s_2$) and write $G \subseteq R_q^k$ for the set of $w$ that pass the
-r$_0$-check, i.e.\ $\|\mathrm{LowBits}(w - v)\|_\infty < \gamma_2-\beta$; $G$ is a product of
-per-coefficient sets of density $1 - p_R$. Then
+r$_0$-check, i.e.\ $\|\mathrm{LowBits}(w - v)\|_\infty < \gamma_2-\beta$. $G$ is a product of one
+set per coefficient, each containing a fraction $1 - p_R$ of $\Z_q$
+($p_R\approx 8\cdot10^{-4}$), and $\mu = (1-p_R)^{256k}$. Since
+$\rho_c(t) - \mu$ is the average over the head $y_{h_0}$ of $1_G(Ay)-\mu$, its square is an
+average over two independent heads:
 \[
   \mathop{\mathbb E}_A \mathop{\mathbb E}_t (\rho_c(t) - \mu)^2
-  = \mathop{\mathbb E}_{y_{h_0}, y'_{h_0}, t}\ \mathop{\mathbb E}_A
+  = \mathop{\mathbb E}_{y_{h_0}, y'_{h_0}, t}\ C(y,y'),
+  \qquad C(y,y') = \mathop{\mathbb E}_A
     \big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big],
-  \qquad y = (y_{h_0}, t),\ y' = (y'_{h_0}, t),
 \]
-a sum over pairs of nonces that \emph{share the tail}.
+where $y = (y_{h_0}, t)$ and $y' = (y'_{h_0}, t)$ \emph{share the tail}. $C(y,y')$ measures how
+correlated ``$Ay$ passes'' and ``$Ay'$ passes'' are over a random $A$; it is $0$ if $(Ay,Ay')$ is
+uniform on $R_q^k\times R_q^k$.
 
-\paragraph{Fourier (\lean{cov\_le}).} For $A$ uniform, $(Ay, Ay')$ is uniform on a subgroup, and
+\paragraph{Fourier (\lean{cov\_le}).}
+This is the ordinary Fourier transform on the additive group of coefficient vectors
+$\Z_q^{256k}$, not the NTT. For a frequency $\xi\in\Z_q^{256k}$ let
+$\psi_\xi(w) = e^{2\pi i(\xi\cdot w)/q}$, and expand
+$1_G = \sum_\xi \hat G(\xi)\psi_\xi$. Because $G$ is a product, $\hat G(\xi)$ is a product of one
+factor per coefficient. Where $\xi$ is zero the factor is the density $1-p_R$. Where $\xi$ is
+nonzero the factor is, up to sign, the one-dimensional Fourier coefficient of the \emph{failing}
+values (a nontrivial character sums to $0$ over all of $\Z_q$), so at most $p_R$ in absolute
+value. Hence
 \[
-  \Big|\mathop{\mathbb E}_A\big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big]\Big|
-  \le \mu^2 \!\!\sum_{\substack{\xi,\xi' \neq 0\\ \xi\cdot Ay + \xi'\cdot Ay' \equiv 0}}\!\!
-      \theta^{\mathrm{wt}(\xi) + \mathrm{wt}(\xi')},
-  \qquad \theta = \frac{p_R}{1-p_R} \approx 2^{-10.25}.
+  |\hat G(\xi)| \le \mu\,\theta^{\mathrm{wt}(\xi)},\qquad
+  \theta = \frac{p_R}{1-p_R} \approx 2^{-10.25},
 \]
-The point is that $1_G$ is a product: its Fourier coefficient at $\xi$ is a product over
-coefficients, and every nonzero coefficient costs a factor $\theta$ (the failing set is small).
-The same bound proves the timing result of \lean{RejOrder.lean}.
+with $\mathrm{wt}(\xi)$ the number of nonzero coordinates of $\xi$. Subtracting $\mu$ removes
+$\xi = 0$, so
+\[
+  C(y,y') = \sum_{\xi,\xi'\ne0}\hat G(\xi)\,\hat G(\xi')\;
+  \mathop{\mathbb E}_A\,e^{2\pi i(\xi\cdot Ay+\xi'\cdot Ay')/q}.
+\]
+The exponent is additive in $A$, so the
+average over $A$ is $1$ if $\xi\cdot Ay + \xi'\cdot Ay' = 0$ for \emph{all} $A$, and $0$
+otherwise. Call such a pair $(\xi,\xi')$ of nonzero frequencies a \emph{test vector} for
+$(y,y')$. Then
+\[
+  |C(y,y')|
+  \le \mu^2 \!\!\sum_{(\xi,\xi')\text{ test vector for }(y,y')}\!\!
+      \theta^{\mathrm{wt}(\xi) + \mathrm{wt}(\xi')}.
+\]
+A test vector is a linear relation between coefficients of $Ay$ and $Ay'$ that holds for every
+$A$, and it is charged a factor $\theta$ for every coefficient it involves.
 
-\paragraph{Degenerate slots (\lean{degS\_sub}, \lean{dualIn\_of\_orth}).} Write $\hat y_j =
-\mathrm{NTT}(y_j)$, the values of $y_j$ at the $256$ roots of $X^{256}+1$ (the \emph{slots}).
-An orthogonal pair $(\xi,\xi')$ has its dual (NTT) coordinates on the \emph{degenerate slots} of
-$(y,y')$, where $(\hat y_j)_j$ and $(\hat y'_j)_j$ are linearly dependent. For a pair sharing the
-tail, a slot is degenerate only if $\hat y_{h_0} - \hat y'_{h_0}$ vanishes there or the whole tail
-vanishes there. The first happens with probability at most about $1/q$ (Section~\ref{sec:slotq}),
-the second with probability at most $(2\gamma_1)^{-(\ell-1)}$ (window argument), so at least
-$d$ slots are degenerate with probability at most $c\,\binom{256}{d}p^d$,
-$p = 1/q + (2\gamma_1)^{-(\ell-1)}$, with a small constant $c$ (\lean{prob\_deg\_ge\_q}).
+\paragraph{Test vectors live on degenerate slots (\lean{dualIn\_of\_orth}).}
+Write $\hat y_j = \mathrm{NTT}(y_j)$, the values of $y_j$ at the $256$ roots $\zeta_m$ of
+$X^{256}+1$ (the \emph{slots}). In the NTT domain $Ay$ is computed slot by slot,
+$\widehat{(Ay)}_i(m) = \sum_j \hat a_{ij}(m)\,\hat y_j(m)$, and the $\hat a_{ij}(m)$ are
+independent and uniform. Write a frequency in the dual coordinates
+$\xi_{i,s} = \sum_m \zeta_m^s\,\tilde\xi_i(m)$, so that
+$\xi\cdot w = \sum_{i,m}\tilde\xi_i(m)\,\hat w_i(m)$. Then $(\xi,\xi')$ is a test vector exactly
+when
+\begin{equation}\label{eq:slot}
+  \tilde\xi_i(m)\,\hat y_j(m) + \tilde\xi'_i(m)\,\hat y'_j(m) = 0
+  \qquad\text{for all } i, j \text{ and all slots } m.
+\end{equation}
+Call slot $m$ \emph{degenerate} if the vectors $(\hat y_j(m))_j$ and $(\hat y'_j(m))_j$ in
+$\Z_q^\ell$ are linearly dependent. At any other slot \eqref{eq:slot} forces
+$\tilde\xi_i(m) = \tilde\xi'_i(m) = 0$. So both $\xi$ and $\xi'$ have their dual coordinates on
+the degenerate slots, and a pair without degenerate slots has $C(y,y') = 0$.
 
-\paragraph{Pairing $\xi'$ with $\xi$ (section \lean{AltR0SharpPart}).} The covariance bound above
-weights $\xi$ and $\xi'$ independently. In fact, at every degenerate slot the pair is tied:
-where the tail does not vanish, orthogonality forces $\tilde\xi'(k) = -\tilde\xi(k)$; where the
-tail vanishes and both heads are nonzero, $\tilde\xi'(k) = -(\hat y_{h_0}(k)/\hat y'_{h_0}(k))
-\tilde\xi(k)$. So unless a degenerate slot is \emph{exceptional} (tail and one head vanish there),
-$\xi' = \Phi\xi$ for a bijection $\Phi$ that rescales dual coordinates slot by slot
-(\lean{orth\_eq\_pairMap}). With $\theta^{\mathrm{wt}\,\xi + \mathrm{wt}\,\Phi\xi} \le
-(\theta^{2\mathrm{wt}\,\xi} + \theta^{2\mathrm{wt}\,\Phi\xi})/2$ and $\Phi$ permuting the test
-vectors on the degenerate slots, the pair sum is at most the $\theta^2$-weighted count of single
-test vectors (\lean{pair\_sum\_le}): squared weight, and no square of the count. Exceptional slots
-occur with probability about $2(2\gamma_1)^{-\ell}$ each (section \lean{AltR0ExcPart},
+\paragraph{Degenerate slots of a shared tail are rare (\lean{degS\_sub}, \lean{prob\_deg\_ge\_q}).}
+At slot $m$ the two vectors are $(\hat y_{h_0}(m), \hat t(m))$ and
+$(\hat y'_{h_0}(m), \hat t(m))$, with the same tail part $\hat t(m)\in\Z_q^{\ell-1}$. They are
+linearly dependent only if
+\begin{itemize}
+\item the heads agree there, $\hat y_{h_0}(m) = \hat y'_{h_0}(m)$: one condition on
+  $y_{h_0}-y'_{h_0}$, of probability at most about $1/q$ (Section~\ref{sec:slotq}); or
+\item the whole tail vanishes there, $\hat t(m) = 0$: one condition on each of the $\ell-1$ tail
+  polynomials, of probability at most $(2\gamma_1)^{-(\ell-1)}$ (window argument: prescribing
+  the NTT of a polynomial at $r$ slots determines $r$ of its coefficients).
+\end{itemize}
+So at least $d$ slots are degenerate with probability at most $c_0\binom{256}{d}p^d$, with
+$p = 1/q + (2\gamma_1)^{-(\ell-1)}\approx2^{-23}$ and a small constant $c_0$ from
+Section~\ref{sec:slotq}. Compared with independent nonces (where a degenerate slot has probability
+about $2^{-49}$ for ML-DSA-44) this is much more likely, which is why the next step is needed.
+
+\paragraph{Pairing $\xi'$ with $\xi$ (section \lean{AltR0SharpPart}).}
+The Fourier bound sums over $\xi$ and $\xi'$ separately, which would square the count of
+frequencies. For a shared tail, \eqref{eq:slot} says more: $\xi'$ is determined by $\xi$. Read
+\eqref{eq:slot} at a degenerate slot $m$:
+\begin{itemize}
+\item \emph{Tail not zero at $m$} (so the heads agree). For a tail index $j$ with
+  $\hat t_j(m)\ne0$, \eqref{eq:slot} is $(\tilde\xi_i(m)+\tilde\xi'_i(m))\,\hat t_j(m)=0$, so
+  $\tilde\xi'_i(m) = -\tilde\xi_i(m)$.
+\item \emph{Tail zero at $m$, both heads nonzero.} Only $j = h_0$ gives a condition, and
+  \[ \tilde\xi'_i(m) = -\frac{\hat y_{h_0}(m)}{\hat y'_{h_0}(m)}\,\tilde\xi_i(m). \]
+\item \emph{Tail zero at $m$ and a head zero at $m$}: call the slot \emph{exceptional}. If,
+  say, $\hat y_{h_0}(m)=0\ne\hat y'_{h_0}(m)$, then $\tilde\xi'_i(m) = 0$ and $\tilde\xi_i(m)$ is
+  free; $\xi'$ is no longer a function of $\xi$.
+\end{itemize}
+So if no degenerate slot is exceptional, $\xi' = \Phi\xi$, where $\Phi$ rescales the dual
+coordinates slot by slot and is a bijection on the frequencies living on the degenerate slots
+(\lean{orth\_eq\_pairMap}). The sum over test vectors becomes a sum over $\xi$ alone, and by
+$ab\le(a^2+b^2)/2$,
+\[
+  \sum_{\xi}\theta^{\mathrm{wt}(\xi) + \mathrm{wt}(\Phi\xi)}
+  \le \frac12\sum_\xi\theta^{2\mathrm{wt}(\xi)} + \frac12\sum_\xi\theta^{2\mathrm{wt}(\Phi\xi)}
+  = \sum_\xi \theta^{2\,\mathrm{wt}(\xi)}
+\]
+(\lean{pair\_sum\_le}): the count of single frequencies with weight $\theta^2$, instead of the
+square of the count with weight $\theta$. Exceptional slots need a second condition on a head,
+and occur with probability about $2(2\gamma_1)^{-\ell}$ each (section \lean{AltR0ExcPart},
 \lean{prob\_deg\_exc\_q}); pairs with one are charged the unpaired bound.
 
-\paragraph{Counting (\lean{wsum\_le}, \lean{wcount\_le\_rows}).} The weighted number $E(d)$ of
-test vectors on $d$ slots is bounded with the free-run counts of \lean{RejOrder.lean}: on each
-polynomial $i$ of $w$, a test vector supported on $t_i$ coefficients vanishes on a cyclic run of
-the others, and the uncertainty principle bounds how many such vectors have their duals on $d$
-given slots. The weight factors over the $k$ polynomials, so the sum is a $k$-th power of a
-one-polynomial sum.
+\paragraph{Counting frequencies on few slots (\lean{wsum\_le}, \lean{wcount\_le\_rows}).}
+It remains to bound $E_\vartheta(d)$, the number of nonzero frequencies $\xi$ whose dual
+coordinates lie on a given set of $d$ slots, each weighted by $\vartheta^{\mathrm{wt}(\xi)}$
+(for $\vartheta = \theta^2$ or $\theta$). On polynomial $i$,
+$\xi_{i,s} = \sum_m\tilde\xi_i(m)\zeta_m^s$ is a combination of $d$ geometric sequences in $s$,
+and such a sequence that vanishes at $d$ consecutive positions is zero (a Vandermonde system;
+positions may wrap around since $\zeta_m^{256}=-1$). So a nonzero $\xi_i$ has a nonzero
+coefficient in every window of $d$ positions, at least $256/d$ in all, and each costs a factor
+$\vartheta$. More precisely, if $\xi_i$ is supported on $t_i$ positions and vanishes on a run of
+$g_i$ consecutive positions, there are at most $q^{\min(t_i,\,d-g_i)}$ possibilities for it. The
+weight and this count are products over the $k$ polynomials of $w$, so the sum over supports is
+the $k$-th power of a sum over one polynomial, which is computed from the number of subsets of
+a $256$-cycle with given size and longest free run. These counts are those of
+\lean{RejOrder.lean}.
 
 \paragraph{Numbers (\lean{var\_rel\_gen}).} Altogether
 \[
   \frac{\mathop{\mathbb E}_A\mathop{\mathbb E}_t (\rho_c(t)-\mu)^2}{\mu^2}
-  \le c\sum_{d=1}^{d_1}\binom{256}{d} p^d E_{\theta^2}(d)
-    + c^2\sum_{d=1}^{d_2}\binom{256}{d}\big(p_e^d - p^d\big) E_\theta(d)^2 + (\text{tails}),
+  \le c_0\sum_{d=1}^{d_1}\binom{256}{d} p^d E_{\theta^2}(d)
+    + c_0^2\sum_{d=1}^{d_2}\binom{256}{d}\big(p_e^d - p^d\big) E_\theta(d)^2 + (\text{tails}).
 \]
-where $E_{\theta^2}$ and $E_\theta$ are the weighted counts with weights $\theta^2$ and
-$\theta$, $p_e \ge p$ includes the exceptional slots, and the tails charge pairs with more than
-$d_1$ (resp.\ $d_2$) degenerate slots the trivial bound. Cleared of denominators, ``$\le
-2^{-k}$'' is an integer inequality checked by \lean{decide +kernel} (\lean{numQ\_44\_full}
-etc.), with $d_1 = 27$, $d_2 = 19$ and $k = 382, 420, 472$.
+The first sum is over pairs with $d$ degenerate slots, none exceptional (paired count). The
+second is over pairs with an exceptional slot (unpaired count); $p_e \ge p$ includes the
+probability of an exceptional slot. The tails charge pairs with more than $d_1$ (resp.\ $d_2$)
+degenerate slots the trivial bound $|C|\le1$, which is $\mu^{-2}$ on this relative scale, times
+their probability. Cleared of denominators, ``$\le 2^{-K}$'' is an integer inequality
+checked by \lean{decide +kernel} (\lean{numQ\_44\_full} etc.), with $d_1 = 27$, $d_2 = 19$ and
+$K = 382, 420, 472$.
 
 \subsection{A slot condition costs $1/q$}\label{sec:slotq}
 

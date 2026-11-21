@@ -350,17 +350,29 @@ $y$ (assumption A1 below). Both are standard. The bad set of matrices depends on
 \section{Proof overview}\label{sec:proof}
 %======================================================================
 
-The proof has five steps.
+\paragraph{The idea in one paragraph.}
+If $w = Ay$ were uniform on $\Rq^k$ and independent of $y$, the leak would be exactly zero: the
+view would have the reference distribution, whatever $u$ and $v$ are (Step~1). For a fixed $A$,
+$w$ is of course a function of $y$. But the view only asks whether $w$ lies in sets of a very
+special shape, \emph{products} of one set per coefficient (Step~2), and a product set can only
+tell $Ay$ from a uniform vector through a linear relation among few coefficients of $Ay$ that
+holds for unusually many $y$ (Step~3). The ring structure rules such relations out for all but a
+tiny fraction of pairs of nonces: a relation must live on NTT slots where the two nonces are
+linearly dependent, and a relation living on few slots must involve many coefficients (Step~4).
+What is left is a finite sum, bounded by a computation (Step~5).
+
+\medskip\noindent In more detail, the five steps are:
 \begin{enumerate}
   \item \emph{Exact counting:} the $z$ check is exactly geometric; the $r_0$ check is exactly
         geometric when $w$ is replaced by a uniform vector.
-  \item \emph{Product sets:} every rejection view is a difference of events ``$Ay$ lies in a
-        product set'', so the leak is bounded by deviations of such events.
-  \item \emph{Fourier:} averaged over $A$, the square of each deviation is a sum over pairs of nonces
-        $(y,y')$ of covariances, which Fourier analysis bounds by a weighted count of test vectors
-        orthogonal to the image of $A \mapsto (Ay, Ay')$.
-  \item \emph{Module structure:} for $\Rq = \Zq[X]/(X^n+1)$ those test vectors live on the few
-        NTT slots where $y$ and $y'$ are linearly dependent, and they are counted row by row.
+  \item \emph{Product sets:} the leak is at most a sum of $256(2k+\ell)$ deviations $D_e(B')$,
+        each of which measures how far ``$Ay$ lies in a product set $P_e$'' is from its value
+        for uniform $w$.
+  \item \emph{Fourier:} $\E_A D_e(B')^2$ is an average over pairs of nonces $(y,y')$ of
+        correlation terms, and each term is at most a weighted count of \emph{test vectors}:
+        pairs $(\xi,\xi')$ with $\xi\cdot Ay+\xi'\cdot Ay' = 0$ for all $A$.
+  \item \emph{Module structure:} test vectors live on the NTT slots where $y$ and $y'$ are
+        linearly dependent. Such slots are rare, and few test vectors fit on few slots.
   \item \emph{Numerics:} one integer inequality per parameter set, checked by the kernel.
 \end{enumerate}
 
@@ -381,72 +393,147 @@ failing position is distributed as $\geom_{p_R}$, and all positions in a set $T$
 probability $p_R^{|T|}$.
 \end{lemma}
 
-The only nontrivial ingredient is a bijection between $\Zq$ and the valid outputs
-$(r_1,r_0)$ of Decompose: $\{0,\dots,b-1\}\times(-\gamma_2,\gamma_2]$ together with the corner
-point $(0,-\gamma_2)$, which has exactly $q$ elements. On this set $\mathrm{LowBits}$ is the
-projection to $r_0$, so shifting by $v_{i,s}$ shifts $r_0$, and the count reduces to counting an
-interval.
+In both cases the number of passing values does not depend on the shift, so the shift (and with
+it the secret) drops out. The only nontrivial ingredient is a bijection between $\Zq$ and the
+valid outputs $(r_1,r_0)$ of Decompose: $\{0,\dots,b-1\}\times(-\gamma_2,\gamma_2]$ together with
+the corner point $(0,-\gamma_2)$, which has exactly $q$ elements. On this set $\mathrm{LowBits}$
+is the projection to $r_0$, so shifting by $v_{i,s}$ shifts $r_0$, and the count reduces to
+counting an interval.
 
 %----------------------------------------------------------------------
 \subsection{Step 2: views as product sets}
 %----------------------------------------------------------------------
 
-Number the $256k$ positions of $w$ in scan order. Let $\mathrm{good}_{i,s} \subseteq \Zq$ be the
-values of $w_{i,s}$ that pass the $r_0$ check (with shift $v_{i,s}$), and for $0\le e\le 256k$ let
+Number the $256k$ positions of $w$ in scan order, $0,\dots,256k-1$. Let
+$\mathrm{good}_t \subseteq \Zq$ be the set of values of the coefficient at position $t$ that
+pass the $r_0$ check (it depends on the shift $v$ at that position, but by Step~1 its size
+$(1-p_R)\,q$ does not). For $0\le e\le 256k$ let
 \[
   P_e = \{\, w \in \Rq^k : \text{the first $e$ positions of $w$ pass}\,\}
+      = \mathrm{good}_0\times\dots\times\mathrm{good}_{e-1}\times\Zq\times\dots\times\Zq
 \]
-(\lean{Pset}), a product of the sets $\mathrm{good}$ on the first $e$ positions and $\Zq$ on the
-others, of density $\mu_e = (1-p_R)^e$ (\lean{muP\_eq}). Then ``the $r_0$ check first fails at
-the $e$-th position'' is $Ay \in P_e\setminus P_{e+1}$, and ``the $z$ check first fails at
-$(j,s)$'' is $y \in B_{j,s}$ and $Ay \in P_{256k}$, where
-$B_{j,s} = \{y\in\mathcal B : J(y) = (j,s)\}$ has probability $\geom_{p_Z}(j,s)$ exactly
-(Step~1). For $B'\subseteq\mathcal{B}$ let
+(\lean{Pset}). Positions $t<e$ are \emph{checked}, positions $t\ge e$ are \emph{free}. A uniform
+$w$ lies in $P_e$ with probability $\mu_e = (1-p_R)^e$ (\lean{muP\_eq}).
+
+Both kinds of rejection view are events about these sets:
+\begin{itemize}
+  \item \emph{The $r_0$ check first fails at position $e$} means $Ay \in P_e$ but
+        $Ay\notin P_{e+1}$. Since $P_{e+1}\subseteq P_e$, its probability is
+        $\Pr_y[Ay\in P_e] - \Pr_y[Ay\in P_{e+1}]$, and its reference value is
+        $\geom_{p_R}(e) = \mu_e - \mu_{e+1}$.
+  \item \emph{The $z$ check first fails at $(j,s)$} means $y\in B_{j,s}$ and $Ay\in P_{256k}$,
+        where $B_{j,s} = \{y\in\mathcal B : J(y) = (j,s)\}$. By Step~1,
+        $\Pr_y[y\in B_{j,s}] = \geom_{p_Z}(j,s)$ exactly, so the reference value is
+        $\Pr_y[y\in B_{j,s}]\,\mu_{256k}$.
+\end{itemize}
+So define, for a set of nonces $B'\subseteq\mathcal{B}$, the deviation
 \[
   D_e(B') = \Bigl|\Pr_y\bigl[y\in B',\ Ay \in P_e\bigr] - \Pr_y[y\in B']\,\mu_e\Bigr|
-  \qquad(\text{\lean{Dev}}).
+  \qquad(\text{\lean{Dev}}),
 \]
-Comparing each view with its reference value term by term gives (\lean{leak\_le\_Dev})
+which is zero if $Ay$ is uniform and independent of $y$. Comparing each view with its reference
+value as above gives (\lean{leak\_le\_Dev})
 \[
   \leak(A,u,v) \le \sum_{e<256k}\bigl(D_e(\mathcal B) + D_{e+1}(\mathcal B)\bigr)
-    + \sum_{(j,s)} D_{256k}(B_{j,s}).
+    + \sum_{(j,s)} D_{256k}(B_{j,s}),
 \]
-So it suffices to bound $\E_A D_e(B')$, uniformly in $e$ and in the sub-event $B'$.
+a sum of $256(2k+\ell)$ deviations. The shift $u$ now appears only in the sets $B_{j,s}$ and $v$
+only in the sets $\mathrm{good}_t$. It suffices to bound $\E_A D_e(B')$ by one number that does
+not depend on $e$, on $B'$ or on the shifts.
 
 %----------------------------------------------------------------------
 \subsection{Step 3: the second moment by Fourier analysis}
 %----------------------------------------------------------------------
 
-Expanding the square,
+Fix $e$ and $B'$ and write $P = P_e$, $\mu = \mu_e$.
+
+\paragraph{From one nonce to pairs of nonces.}
+We bound $\E_A D^2$ and take a square root at the end. By definition
+$D_e(B') = \bigl|\frac{1}{|\mathcal B|}\sum_{y\in B'}(\mathbf 1[Ay\in P]-\mu)\bigr|$. Squaring
+turns the sum over $y$ into a sum over pairs:
 \[
-  \E_A D_e(B')^2 = \frac{1}{|\mathcal B|^2}\sum_{y,y'\in B'}
-    \mathrm{Cov}_A\bigl(\mathbf 1[Ay\in P_e],\,\mathbf 1[Ay'\in P_e]\bigr),
+  \E_A D_e(B')^2 = \frac{1}{|\mathcal B|^2}\sum_{y,y'\in B'} C(y,y'),\qquad
+  C(y,y') = \E_A\bigl[(\mathbf 1[Ay\in P]-\mu)\,(\mathbf 1[Ay'\in P]-\mu)\bigr].
 \]
-a sum over pairs of nonces of covariances over $A$. For a fixed pair, $A\mapsto(Ay,Ay')$ is an
-additive map, and $P_e$ is a \emph{product} set. Its indicator has Fourier coefficients that factor
-over positions. A nonzero frequency on a free position (beyond the first $e$) gives $0$, and on a
-passing position costs a factor of at most $\theta = p_R/(1-p_R) \approx 2^{-10.25}$ relative to
-the zero frequency, since the failing set is small. Averaging the characters over $A$ keeps exactly the
-pairs of frequencies $(\xi,\xi')$ for which $\xi\cdot Ay + \xi'\cdot Ay' = 0$ for all $A$. This gives
-(\lean{cov\_le})
+$C(y,y')$ measures how correlated the events $Ay\in P$ and $Ay'\in P$ are over a random $A$. If
+the pair $(Ay,Ay')$ is uniform on $\Rq^k\times\Rq^k$, the two events are independent with
+probability $\mu$ each, and $C(y,y')=0$.
+
+\paragraph{The Fourier transform.}
+This is the ordinary discrete Fourier transform on the additive group of coefficient vectors,
+\emph{not} the NTT (which enters in Step~4). View $w\in\Rq^k$ as its vector of $N = 256k$
+coefficients in $\Zq$. For each \emph{frequency} $\xi\in\Zq^N$ there is a character
 \[
-  \bigl|\mathrm{Cov}_A\bigr| \le \mu_e^2\!\!\sum_{\substack{\xi,\xi'\ne0\\
-    \xi\cdot Ay+\xi'\cdot Ay'\equiv0}}\!\! \theta^{\mathrm{wt}(\xi)+\mathrm{wt}(\xi')},
+  \psi_\xi(w) = e^{2\pi i\,(\xi\cdot w)/q},\qquad \xi\cdot w = \sum_t \xi_t w_t ,
 \]
-with $\mathrm{wt}$ the Hamming weight. If no nonzero test vector $(\xi,\xi')$ is orthogonal to
-the image, $(Ay,Ay')$ is uniform and the covariance is $0$; otherwise the bound charges each
-orthogonal test vector by its weight. The rest of the proof counts these test vectors.
+and every function on $\Zq^N$ is a combination of characters. For the indicator of $P$:
+\[
+  \mathbf 1_P(w) = \sum_\xi \hat P(\xi)\,\psi_\xi(w),\qquad
+  \hat P(\xi) = q^{-N}\sum_{w\in P}\psi_\xi(-w).
+\]
+
+\paragraph{The coefficients of a product set.}
+Because $P$ is a product over positions and $\psi_\xi(w) = \prod_t e^{2\pi i\,\xi_tw_t/q}$,
+$\hat P(\xi)$ is a product of one factor per position $t$, the one-dimensional Fourier coefficient
+of the set at that position, at the frequency $\xi_t\in\Zq$. There are three cases.
+\begin{itemize}
+  \item $\xi_t = 0$: the factor is the density of the set, $1-p_R$ at a checked position and
+        $1$ at a free one.
+  \item $\xi_t \ne 0$, checked position: the sum of $e^{-2\pi i\,\xi_tx/q}$ over \emph{all}
+        $x\in\Zq$ is $0$ (all $q$-th roots of unity), so the sum over $\mathrm{good}_t$ is
+        minus the sum over its complement, the failing values. There are only $p_Rq$ of those, so
+        the factor has absolute value at most $p_R$.
+  \item $\xi_t \ne 0$, free position: the factor is $0$ for the same reason. We do not use
+        this; we only use that it is at most $\theta$ times the density, like at a checked
+        position. This makes the resulting bound the same for every $e$.
+\end{itemize}
+So $\hat P(0)=\mu$, and relative to it every nonzero coordinate of $\xi$ costs a factor
+\[
+  \theta = \frac{p_R}{1-p_R} \approx 2^{-10.25}:\qquad
+  |\hat P(\xi)| \le \mu\,\theta^{\mathrm{wt}(\xi)},
+\]
+with $\mathrm{wt}(\xi)$ the number of nonzero coordinates. The $r_0$ check rarely fails, so
+$P$ is almost everything on each checked position, and all its Fourier weight beyond the constant
+term sits on frequencies with few nonzero coordinates.
+
+\paragraph{Averaging over $A$.}
+Subtracting $\mu$ removes the term $\xi = 0$, so
+\[
+  C(y,y') = \sum_{\xi,\xi'\ne0}\hat P(\xi)\,\hat P(\xi')\;
+    \E_A\, e^{2\pi i\,(\xi\cdot Ay+\xi'\cdot Ay')/q}.
+\]
+For fixed $y,y',\xi,\xi'$ the exponent $\Lambda(A) = \xi\cdot Ay+\xi'\cdot Ay'$ is an additive
+function of $A$ with values in $\Zq$. If it is not identically zero, it takes every value equally
+often and the average is $0$. If it is identically zero, the average is $1$. Call $(\xi,\xi')$ a
+\emph{test vector for $(y,y')$} if $\xi,\xi'\ne0$ and $\xi\cdot Ay+\xi'\cdot Ay' = 0$ for all
+$A$. Then (\lean{cov\_le})
+\[
+  |C(y,y')| \;\le\; \mu^2\!\!\sum_{\substack{(\xi,\xi')\ \text{test vector}\\\text{for }(y,y')}}\!\!
+    \theta^{\mathrm{wt}(\xi)+\mathrm{wt}(\xi')} .
+\]
+
+\paragraph{Reading the bound.}
+A test vector is a linear relation between coefficients of $Ay$ and of $Ay'$ that holds for every
+$A$; it involves $\mathrm{wt}(\xi)+\mathrm{wt}(\xi')$ coefficients and is charged $\theta$ for each.
+If there is none, $C(y,y') = 0$. At the other extreme, for $y'=y$ every $\xi' = -\xi$ gives a test
+vector. The rest of the proof shows that for almost all pairs there are no test vectors, and
+that for the remaining pairs all test vectors involve many coefficients.
 
 %----------------------------------------------------------------------
 \subsection{Step 4: the module structure}
 %----------------------------------------------------------------------
 
-Up to here nothing used the ring. Now the structure of $\Rq$ enters, only through the NTT
-(\lean{IsNTTMul}): $\hat a = \mathrm{NTT}(a)$ evaluates $a$ at the $256$ roots of $X^{256}+1$,
-the odd powers of $\zeta = 1753$, and multiplication is slot-wise,
-$\widehat{ac} = \hat a\circ\hat c$. The order of the slots plays no role, so we index slot $k$ by
-the root $\zeta_k = \zeta^{2k+1}$ rather than FIPS~204's bit-reversed order, and write
-$\hat a(k) = \sum_s a_s\zeta_k^s$ (proved: $1753^{256} = -1$; \lean{isNTTMul\_mldsa}).
+Up to here nothing used the ring; Step~3 holds for any additive map in place of
+$A\mapsto(Ay,Ay')$. The question is now: \emph{for which pairs $(y,y')$ are there test vectors,
+and how many, weighted by $\theta^{\mathrm{wt}}$?}
+
+\paragraph{The NTT.}
+The structure of $\Rq$ enters only through the NTT (\lean{IsNTTMul}):
+$\hat a = \mathrm{NTT}(a)$ evaluates $a$ at the $256$ roots of $X^{256}+1$, the odd powers of
+$\zeta = 1753$, and multiplication is slot-wise, $\widehat{ac} = \hat a\circ\hat c$. The order of
+the slots plays no role, so we index slot $k$ by the root $\zeta_k = \zeta^{2k+1}$ rather than
+FIPS~204's bit-reversed order, and write $\hat a(k) = \sum_s a_s\zeta_k^s$ (proved:
+$1753^{256} = -1$; \lean{isNTTMul\_mldsa}).
 
 \noindent In Lean, Theorem~\ref{thm:main} is stated over $\Rq$ itself: section \lean{RingForm}
 takes $\Rq$ = \lean{AdjoinRoot} $(X^{256}+1)$ from Mathlib, $A$ uniform in
@@ -456,62 +543,135 @@ product in $\Rq$ has the coefficients of the negacyclic product (\lean{coeffs\_m
 evaluating at the $\zeta_k$ and inverting the Vandermonde matrix), and a uniform $A$ has uniform
 coefficients (\lean{avg\_ringMat}).
 
-\paragraph{Dual coordinates and degenerate slots.}
-Write a test vector $\xi$ on polynomial $i$ of $w$ as
-$\xi_{(i,s)} = \sum_k \zeta_k^s\,\tilde\xi_i(k)$, which is always possible since the
-Vandermonde matrix is invertible (\lean{dual}). Then
-$\xi\cdot(Ay) = \sum_{i,j,k}\tilde\xi_i(k)\,\hat a_{ij}(k)\,\hat y_j(k)$, and since the
-$\hat a_{ij}(k)$ can be chosen freely, $(\xi,\xi')$ is orthogonal for all $A$ exactly when
+\paragraph{Slot by slot.}
+In the NTT domain $w = Ay$ reads
 \[
-  \tilde\xi_i(k)\,\hat y_j(k) + \tilde\xi'_i(k)\,\hat y'_j(k) = 0
-  \qquad\text{for all } i,j,k
+  \hat w_i(k) = \sum_{j<\ell} \hat a_{ij}(k)\,\hat y_j(k)\qquad(\text{polynomial $i$ of $w$, slot $k$}),
 \]
-(\lean{slot\_of\_orth}). Call slot $k$ \emph{degenerate} for the pair if the vectors
-$(\hat y_j(k))_j$ and $(\hat y'_j(k))_j$ in $\Zq^\ell$ are linearly dependent, and let $D(y,y')$ be
-the set of degenerate slots (\lean{degS}). An orthogonal pair of test vectors has all its dual
-coordinates on $D(y,y')$ (\lean{dualIn\_of\_orth}), and if $D = \emptyset$ there is none
-(\lean{dualIn\_empty}).
+and for uniform $A$ the $\hat a_{ij}(k)$ are independent and uniform in $\Zq$. So at each slot
+$k$ and for each $i$, the pair $(\hat w_i(k),\hat w'_i(k))$ of $w=Ay$, $w'=Ay'$ is a random
+combination $\sum_j\hat a_{ij}(k)\,(\hat y_j(k),\hat y'_j(k))$, independently over $i$ and $k$.
+Compare the two vectors
+\[
+  \hat y(k) = (\hat y_j(k))_{j<\ell},\qquad \hat y'(k) = (\hat y'_j(k))_{j<\ell}\qquad\in\Zq^\ell .
+\]
+If they are linearly independent, the pair $(\hat w_i(k),\hat w'_i(k))$ is uniform on $\Zq^2$:
+at this slot $Ay$ and $Ay'$ look like two independent uniform values, and no linear relation can
+involve them. If they are linearly dependent, call the slot \emph{degenerate} for $(y,y')$; let
+$D(y,y')$ be the set of degenerate slots (\lean{degS}).
 
-\paragraph{Degenerate slots are rare (window argument).}
+\paragraph{Dual coordinates.}
+To make ``a relation involves a slot'' precise, write a frequency $\xi$ in coordinates dual to
+the NTT: on polynomial $i$,
+\[
+  \xi_{i,s} = \sum_k \zeta_k^s\,\tilde\xi_i(k),\qquad\text{so that}\qquad
+  \xi\cdot w = \sum_{i,k}\tilde\xi_i(k)\,\hat w_i(k).
+\]
+This is always possible and $\tilde\xi$ is unique, since the Vandermonde matrix
+$(\zeta_k^s)_{s,k}$ is invertible (\lean{dual}). Then
+$\xi\cdot Ay + \xi'\cdot Ay'= \sum_{i,j,k}\hat a_{ij}(k)\,\bigl(\tilde\xi_i(k)\,\hat y_j(k)
++\tilde\xi'_i(k)\,\hat y'_j(k)\bigr)$, and since the $\hat a_{ij}(k)$ are free, $(\xi,\xi')$ is a
+test vector exactly when
+\[
+  \tilde\xi_i(k)\,\hat y(k) + \tilde\xi'_i(k)\,\hat y'(k) = 0 \in \Zq^\ell
+  \qquad\text{for all } i \text{ and } k
+\]
+(\lean{slot\_of\_orth}). At a slot that is not degenerate this forces
+$\tilde\xi_i(k)=\tilde\xi'_i(k)=0$. Hence:
+\begin{quote}
+\emph{$\xi$ and $\xi'$ have all their dual coordinates on the degenerate slots $D(y,y')$}
+(\lean{dualIn\_of\_orth}). \emph{If $D(y,y')=\emptyset$ there is no test vector}
+(\lean{dualIn\_empty}), \emph{and $C(y,y')=0$.}
+\end{quote}
+Two estimates remain: (a) pairs with many degenerate slots are rare, and (b) a frequency whose
+dual lives on few slots has many nonzero coefficients, so it is charged many factors $\theta$.
+
+\paragraph{(a) Degenerate slots are rare.}
 \begin{lemma}[\lean{slot\_prob}, \lean{deg\_card\_prob}]
-If $2\gamma_1\le q$, then for $y,y'$ independent and uniform on $\mathcal{B}$, a given set of $d$
-slots is degenerate with probability at most $\rho^d$, $\rho = (q+1)/(2\gamma_1)^\ell$.
+If $2\gamma_1\le q$, then for $y,y'$ independent and uniform on $\mathcal{B}$, the probability that
+all slots of a given set $S$ of $d$ slots are degenerate is at most $\rho^d$, where
+$\rho = (q+1)/(2\gamma_1)^\ell$.
 \end{lemma}
-\begin{proof}[Idea]
-A union bound over one of the $q+1$ lines $(c:c')$ per slot reduces this to one linear condition
-on $(\hat y_j(k),\hat y'_j(k))$ per slot and per $j<\ell$. Say $r$ slots constrain $y_j$. Fix all
-coefficients of $y_j$ except the first $r$. The remaining unknowns form a polynomial of degree $<r$
-whose values at $r$ distinct points are prescribed, so it is determined (\lean{window}). Because
-$2\gamma_1\le q$, coefficients in $[-\gamma_1+1,\gamma_1]$ are determined by their residues mod $q$.
-So at most a $(2\gamma_1)^{-r}$ fraction of the box survives, for each of the $\ell$ polynomials.
-\end{proof}
+For ML-DSA-44, $\rho\approx2^{23}/2^{72} = 2^{-49}$. The lemma has two ingredients.
+\begin{itemize}
+  \item \emph{The window argument} (\lean{window}). Prescribe the values $\hat f(k)$ of a
+        polynomial $f$ with coefficients in $[-\gamma_1+1,\gamma_1]$ at $r$ slots. Fix all
+        coefficients of $f$ except the first $r$. The $r$ remaining ones form a polynomial of
+        degree $<r$ whose values at $r$ distinct points $\zeta_k$ are now prescribed, so they are
+        determined modulo $q$, and because $2\gamma_1\le q$ they are determined as integers in the
+        range. So at most a fraction $(2\gamma_1)^{-r}$ of all $f$ has the prescribed values.
+  \item \emph{A union bound over lines.} Slot $k$ is degenerate iff
+        $c\,\hat y(k) + c'\,\hat y'(k) = 0$ for some $(c,c')\ne(0,0)$, which matters only up to
+        scaling: one of $q+1$ lines. Choose a line for each slot of $S$, $(q+1)^d$ choices in
+        all. For a fixed choice and each $j<\ell$, a slot with $c\ne0$ prescribes
+        $\hat y_j(k)$ in terms of $y'_j$, and a slot with $c=0$ prescribes $\hat y'_j(k)=0$. If
+        $r$ slots are of the first kind, the window argument gives a fraction
+        $(2\gamma_1)^{-r}$ for $y_j$ and $(2\gamma_1)^{-(d-r)}$ for $y'_j$, together
+        $(2\gamma_1)^{-d}$, for each of the $\ell$ indices $j$.
+\end{itemize}
 
-\paragraph{Counting test vectors polynomial by polynomial.}
-Let $E(d)$ bound the $\theta$-weighted number of nonzero test vectors whose duals lie on a given set
-$S$ of $d$ slots, $\sum_{\xi\ne0,\ \tilde\xi\subseteq S} \theta^{\mathrm{wt}(\xi)}$
-(\lean{wsum\_le}). Group the $\xi$ by their coefficient support $T$. On polynomial $i$, $\xi$ vanishes
-outside the $t_i$ positions of $T$ in that polynomial, so on a cyclic run of $g_i$ consecutive positions
-(\lean{cgap}; runs may wrap around because $\zeta_k^{256}=-1$ for all $k$, \lean{dual\_row\_zero}).
-A function $\tilde\xi_i$ supported on at most $r$ slots whose ``power sums'' vanish on $r$
-consecutive exponents is zero (\lean{dual\_vanish}, an uncertainty principle), so $\tilde\xi_i$ is
-determined by its values on all but $g_i$ slots of $S$, and polynomial $i$ contributes at most
-$q^{\min(t_i,\,d-g_i)}$ test vectors (\lean{card\_suppIn1\_le\_xg}). The weight
-$\theta^{|T|}$ factors over the polynomials too, so the sum over $T$ is the $k$-th power of a
-sum over one polynomial (\lean{wcount\_le\_rows}). That sum groups the subsets of a $256$-cycle by their longest free
-run; those whose free runs all have length at most $g$ are counted through compositions, as
-coefficients of $(1+X+\dots+X^g)^{v}$ (\lean{card\_linSet}, \lean{card\_shortSet}), evaluated by
-packing polynomial coefficients into large integers (Kronecker substitution, \lean{GapEval}).
+\paragraph{(b) Few slots force many nonzero coefficients.}
+Fix a set $S$ of $d$ slots and let
+\[
+  E(d)\ \ge\ \sum_{\xi\ne0,\ \tilde\xi \text{ on } S}\theta^{\mathrm{wt}(\xi)}
+\]
+be a bound on the weighted number of frequencies whose dual coordinates lie on $S$
+(\lean{wsum\_le}). Look at one polynomial $i$ first. There
+$\xi_{i,s} = \sum_{k\in S}\tilde\xi_i(k)\,\zeta_k^s$ is a combination of $d$ geometric sequences
+in $s$, and such a sequence cannot have many consecutive zeros:
+\begin{quote}
+\emph{If $\xi_i$ vanishes at $g$ consecutive positions $s$, then $\tilde\xi_i$ is determined by its
+values on $d-g$ of the slots of $S$. In particular, if $g\ge d$ then $\xi_i=0$}
+\end{quote}
+(\lean{dual\_vanish}; the $g$ vanishing conditions are a Vandermonde system in $g$ of the
+unknowns). This is an uncertainty principle: $\tilde\xi_i$ concentrated on few slots forces
+$\xi_i$ to be spread out. ``Consecutive'' may wrap around from position $255$ to $0$, because
+$\zeta_k^{256}=-1$ for all $k$ (\lean{dual\_row\_zero}). So a nonzero $\xi_i$ has a nonzero
+coefficient in every cyclic window of $d$ positions, hence at least $256/d$ of them, each costing
+$\theta\approx2^{-10}$.
+
+For the count, group the $\xi$ by their support. If the support on polynomial $i$ lies in a set
+$U_i$ of $t_i$ positions whose longest cyclic run of unused positions has length $g_i$
+(\lean{cgap}), there are at most $q^{\min(t_i,\,d-g_i)}$ possibilities for $\xi_i$: at most
+$q^{t_i}$ trivially, and at most $q^{d-g_i}$ by the statement above
+(\lean{card\_suppIn1\_le\_xg}). So
+\begin{align*}
+  \sum_{\xi\ne0,\ \tilde\xi \text{ on } S}\theta^{\mathrm{wt}(\xi)}
+  &\le \sum_{U_0,\dots,U_{k-1}}\ \Bigl(\prod_i\theta^{t_i}q^{\min(t_i,\,d-g_i)}\ -\ \prod_i\theta^{t_i}\Bigr)\\
+  &= \Bigl(\sum_{U}\theta^{t}q^{\min(t,\,d-g)}\Bigr)^{k} - (1+\theta)^{256k}
+  \;=:\; E(d),
+\end{align*}
+where the subtracted term removes $\xi=0$, and the sum factors because each term is a product
+over the $k$ polynomials (\lean{wcount\_le\_rows}). The remaining sum is over subsets $U$ of a
+cycle of $256$ positions and depends only on the size $t$ and the longest free run $g$ of $U$. To
+count the subsets with given $t$ and all free runs of length at most $g$, cut the cycle at one of
+the $t$ points of $U$: what remains is a sequence of free runs of lengths at most $g$ with a
+given total, and the number of those is a coefficient of a power of $1+X+\dots+X^g$
+(\lean{card\_shortSet}, \lean{card\_linSet}). These coefficients are computed by packing polynomials into large integers (Kronecker substitution,
+\lean{GapEval}).
 
 \paragraph{Putting it together.}
-Group the pairs $(y,y')$ by $d = |D(y,y')|$. Pairs with $d = 0$ contribute nothing. For $1\le
-d\le d_m$, the pair sum is at most $E(d)^2$ ($\xi$ and $\xi'$ both live on $D$), and the
-probability of $d$ given degenerate slots is at most $\rho^d$. Pairs with more than $d_m$
-degenerate slots are charged the trivial bound. So (\lean{Dsq\_le})
+Group the pairs $(y,y')$ by their set of degenerate slots $D = D(y,y')$, of size $d$.
+\begin{itemize}
+  \item $d=0$: no test vectors, $C(y,y')=0$.
+  \item $1\le d\le d_m$: both $\xi$ and $\xi'$ have their duals on $D$, so
+        $|C(y,y')|\le E(d)^2$. There are $\binom{256}{d}$ sets of $d$ slots, each degenerate with
+        probability at most $\rho^d$.
+  \item $d>d_m$: we use only $|C(y,y')|\le1$. Some set of $d_m+1$ slots is degenerate, which has
+        probability at most $\binom{256}{d_m+1}\rho^{d_m+1}$.
+\end{itemize}
+So (\lean{Dsq\_le})
 \[
   \E_A D_e(B')^2 \le \sum_{d=1}^{d_m}\binom{256}{d}\rho^d E(d)^2 + \binom{256}{d_m+1}\rho^{d_m+1},
 \]
-uniformly in $e$ and $B'$ (the pairs run over $B'\times B'\subseteq\mathcal B\times\mathcal B$).
-Jensen then gives $\E_A D_e(B')$ as the square root (\lean{avg\_Dev\_le}).
+for every $e$ and $B'$ (restricting the pairs to $B'\times B'\subseteq\mathcal B\times\mathcal B$
+only drops nonnegative terms of the bound). Finally
+$\E_A D_e(B') \le \sqrt{\E_A D_e(B')^2}$ (\lean{avg\_Dev\_le}).
+
+The two effects work against each other in the right way. For small $d$ the factor $\rho^d$ is
+only moderately small, but frequencies on few slots are very spread out and $E(d)$ is tiny. For
+large $d$ there is room for sparser frequencies and $E(d)$ grows, but $\rho^d$ is tiny. The cutoff
+$d_m$ balances the last term against the sum.
 
 %----------------------------------------------------------------------
 \subsection{Step 5: numerics}
@@ -519,7 +679,8 @@ Jensen then gives $\E_A D_e(B')$ as the square root (\lean{avg\_Dev\_le}).
 
 Cleared of denominators, ``the right-hand side above is at most $2^{-2j}$'' is one inequality
 between natural numbers per parameter set (\lean{numR}), checked by kernel evaluation
-(\lean{decide +kernel}, not \lean{native\_decide}; \lean{numR\_44} etc.). Then
+(\lean{decide +kernel}, not \lean{native\_decide}; \lean{numR\_44} etc.). Each of the
+$256(2k+\ell)$ deviations of Step~2 is then at most $2^{-j}$ on average, so
 $\E_A[\leak] \le 256(2k + \ell)\,2^{-j}$ (\lean{leak\_avg\_fourier}).
 
 \begin{center}
