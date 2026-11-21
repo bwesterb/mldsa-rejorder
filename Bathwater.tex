@@ -352,7 +352,7 @@ r$_0$-check; $G$ is a product of per-coordinate sets of density $1 - p_R$. Then
 \]
 a sum over pairs of nonces that \emph{share the tail}.
 
-\paragraph{Fourier (section \lean{FourierPart}, \lean{cov\_le}).} For $A$ uniform, $(Ay, Ay')$ is uniform on
+\paragraph{Fourier (\lean{cov\_le}, in \lean{RejOrder.lean}).} For $A$ uniform, $(Ay, Ay')$ is uniform on
 a subgroup, and
 \[
   \Big|\mathop{\mathbb E}_A\big[(1_G(Ay) - \mu)(1_G(Ay') - \mu)\big]\Big|
@@ -362,8 +362,8 @@ a subgroup, and
 \]
 The point is that $1_G$ is a product: its Fourier coefficient at $\xi$ is a product over
 coordinates, and every nonzero coordinate costs a factor $b$ (the bad set is small). This
-replaces the Bonferroni truncation of \lean{RejOrder.lean}, which with only one fresh polynomial
-gives just $2^{-15}$.
+replaces Bonferroni truncation, which with only one fresh polynomial gives just $2^{-15}$; the
+same bound now also proves the timing result of \lean{RejOrder.lean}.
 
 \paragraph{Support (\lean{degS\_sub}, \lean{dualIn\_of\_orth}).} An orthogonal pair $(\xi,\xi')$ has
 its dual (NTT) coordinates on the \emph{degenerate slots} of $(y,y')$. For a pair sharing the tail,
@@ -457,8 +457,8 @@ $(Ay)_{i,s}$ coefficient $s$ of the reduced representative of $\sum_j A_{ij} y_j
 \]
 \end{theorem}
 
-The bridge, in section \lean{RingForm} of \lean{RejOrder.lean} (which also states the RejOrder
-and product-Fourier leak bounds over $R_q$), is exact: \lean{coeffs\_mul} (a product in $R_q$ has the coefficients of the
+The bridge, in section \lean{RingForm} of \lean{RejOrder.lean} (which also states the timing
+leak bounds over $R_q$), is exact: \lean{coeffs\_mul} (a product in $R_q$ has the coefficients of the
 negacyclic matrix product, checked by evaluating at the $256$ roots of $X^{256}+1$ and inverting
 the Vandermonde matrix) and \lean{avg\_matrix} (uniform $A$ means uniform coefficients).
 The headline theorems below use the second moment only in this form (via
@@ -607,7 +607,8 @@ the reduction) is that of \cite{BBDD23} and the thesis, and is not formalised he
 \section{Map of the Lean file}\label{sec:map}
 
 Everything is in \lean{Bathwater.lean}, which imports Mathlib and \lean{RejOrder.lean} (for the
-module/NTT machinery and the gap counts). Its sections, in order:
+module/NTT machinery, the gap counts, the covariance bound \lean{cov\_le} and the weighted counts
+\lean{wsum\_le}, \lean{wcount\_le\_rows}). Its sections, in order:
 \begin{center}
 \begin{tabular}{@{}ll@{}}
 \toprule
@@ -616,13 +617,12 @@ Section & Contents\\
 \lean{BathwaterCore} & loop semantics (\lean{Loop}), \lean{ReusePolicy}, \lean{exact\_of\_invariant},
   \lean{altZ\_exact};\\
  & alt-r0 output law and distance (\lean{AltR0Set}); toy counterexamples (\lean{Toy})\\
-\lean{FourierPart} & covariance of product-set indicators (\lean{cov\_le})\\
 \lean{AltR0Part} & shared-tail slots, weighted counts, \lean{var\_le}, \lean{dev\_rel}\\
 \lean{PackingPart} & a slot condition costs $1/q$ (\lean{card\_coset\_le})\\
 \lean{NcInvPart} & $X^{256}+1$ irreducible, so \lean{ncMat\_det\_ne\_zero}\\
 \lean{AltR0ExcPart} & probability of exceptional slots (\lean{prob\_deg\_exc})\\
 \lean{AltR0QPart} & slot probabilities with $1/q$ (\lean{prob\_deg\_ge\_q}, \dots)\\
-\lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le}, \lean{wcount\_le\_rows},
+\lean{AltR0SharpPart} & pairing map, \lean{pair\_sum\_le},
   \lean{var\_le\_sharp}, \lean{dev\_mldsa*\_sharp}\\
 \lean{AltR0GenPart} & \lean{var\_rel\_gen}, \lean{var\_mldsa*\_q}\\
 \lean{RingFormPart} & the same over $R_q = \Z_q[X]/(X^{256}+1)$, \lean{moment\_mldsa*}\\

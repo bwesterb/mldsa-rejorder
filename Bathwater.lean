@@ -9,7 +9,6 @@ This file collects, in order:
 * `BathwaterCore`: loop semantics, partial reuse of the nonce, the exactness of alt-z, the output
   law of alt-r0 and its distance to vanilla, approximate invariance (`ReusePolicy.defect`,
   `outUpTo_close`), and the toy counterexamples.
-* `FourierPart`: a Fourier bound on the covariance of indicators of product sets.
 * `AltR0Part`: the second moment over `A` of the r₀ pass probability with the tail fixed.
 * `PackingPart`, `NcInvPart`: a slot condition costs `1/q` (packing argument; invertibility in
   `ℚ[X]/(X^256+1)`).
@@ -23,13 +22,13 @@ This file collects, in order:
   (`moment_mldsa44` etc.); the headlines use them in this form.
 * `AltR0FinalPart`: alt-r0 for ML-DSA-44/65/87 end to end.
 * `MinEntropyPart`: min-entropy of the commitment with a fresh head.
-* `RejOrderFourierPart`: the RejOrder leak bound redone with the product-Fourier bound.
 * `AltR0JointPart`: alt-r0 per attempt (joint law of attempt number and output, survival), via
   the defect bound (`altR0_joint_mldsa44` etc.).
 * `Alg3Part`: ePrint Algorithm 3 (r₀ first, resample the head on an r₀ failure and a prefix on a
   z failure) is close to vanilla for ML-DSA (`alg3_defect_le`, `alg3_mldsa44` etc.).
 
-It imports `RejOrder.lean` for the module/NTT machinery and the gap counts.
+It imports `RejOrder.lean` for the module/NTT machinery, the gap counts, the covariance bound
+`cov_le` and the weighted counts of test vectors.
 -/
 
 section BathwaterCore
@@ -1658,259 +1657,6 @@ end Bathwater
 
 end BathwaterCore
 
-section FourierPart
-
-/-!
-# A Fourier bound on the covariance of two indicator functions
-
-Let `q` be prime, `P` a finite additive commutative group and `φ φ' : P →+ (Fin m → ZMod q)`
-two additive maps. Let `G = Fintype.piFinset g` be a product of nonempty "good" sets
-`g r ⊆ ZMod q`, with density `μ = ∏ r, |g r| / q`, and suppose that in every coordinate the bad
-density is at most `β` times the good density: `q - |g r| ≤ β |g r|`.
-
-The theorem `AltR0.cov_le` states that, for `a` uniform on `P`, the covariance of the
-indicators `1[φ a ∈ G]` and `1[φ' a ∈ G]` is bounded in absolute value by
-`μ² · ∑_{ξ, ξ' ≠ 0, ξ ⬝ φ + ξ' ⬝ φ' ≡ 0} β ^ (wt ξ + wt ξ')`,
-where `wt ξ` is the Hamming weight of `ξ`.
-
-The proof is by finite Fourier analysis over `ZMod q` with the standard additive character
-`ZMod.stdAddChar`: the Fourier coefficients of `1_G` factor over coordinates, each nonzero
-frequency in a coordinate costs a factor `β`, and averaging the characters over `P` keeps
-exactly the pairs `(ξ, ξ')` for which `a ↦ ξ ⬝ φ a + ξ' ⬝ φ' a` vanishes identically.
-The statement itself lives entirely in `ℚ`.
--/
-
-open Finset
-
-namespace AltR0
-
-section Fourier
-
-variable {q : ℕ} [NeZero q]
-
-local notation "ψ" => (ZMod.stdAddChar : AddChar (ZMod q) ℂ)
-
-/-- One-dimensional character sum. -/
-lemma sum_psi_mul (b : ZMod q) :
-    ∑ x : ZMod q, ψ (x * b) = if b = 0 then (q : ℂ) else 0 := by
-  rw [AddChar.sum_mulShift b (ZMod.isPrimitive_stdAddChar q), ZMod.card]
-  split_ifs <;> simp
-
-lemma psi_sum {ι : Type*} (s : Finset ι) (f : ι → ZMod q) :
-    ψ (∑ i ∈ s, f i) = ∏ i ∈ s, ψ (f i) := by
-  classical
-  induction s using Finset.induction_on with
-  | empty => simp
-  | insert i s hi ih => rw [sum_insert hi, prod_insert hi, AddChar.map_add_eq_mul, ih]
-
-/-- One-dimensional Fourier coefficient of the indicator of `s`. -/
-noncomputable def gh (s : Finset (ZMod q)) (x : ZMod q) : ℂ :=
-  (q : ℂ)⁻¹ * ∑ u ∈ s, ψ (-(x * u))
-
-/-- One-dimensional Fourier inversion. -/
-lemma gh_inv (s : Finset (ZMod q)) (t : ZMod q) :
-    ∑ x : ZMod q, gh s x * ψ (x * t) = if t ∈ s then 1 else 0 := by
-  have hq : (q : ℂ) ≠ 0 := Nat.cast_ne_zero.2 (NeZero.ne q)
-  have h1 : ∀ x, gh s x * ψ (x * t) = (q : ℂ)⁻¹ * ∑ u ∈ s, ψ (x * (t - u)) := by
-    intro x
-    rw [gh, mul_assoc, Finset.sum_mul]
-    congr 1
-    refine Finset.sum_congr rfl fun u _ => ?_
-    rw [← AddChar.map_add_eq_mul]
-    congr 1
-    ring
-  rw [Finset.sum_congr rfl fun x _ => h1 x, ← Finset.mul_sum, Finset.sum_comm]
-  have h2 : ∑ u ∈ s, ∑ x : ZMod q, ψ (x * (t - u)) = if t ∈ s then (q : ℂ) else 0 := by
-    simp_rw [sum_psi_mul, sub_eq_zero]
-    exact Finset.sum_ite_eq s t (fun _ => (q : ℂ))
-  rw [h2]
-  split_ifs
-  · exact inv_mul_cancel₀ hq
-  · exact mul_zero _
-
-lemma gh_zero (s : Finset (ZMod q)) : gh s 0 = (s.card : ℂ) / q := by
-  simp [gh, div_eq_inv_mul]
-
-lemma gh_norm (s : Finset (ZMod q)) (β : ℝ) (hs : (q : ℝ) - s.card ≤ β * s.card)
-    (x : ZMod q) : ‖gh s x‖ ≤ (s.card / q : ℝ) * (if x ≠ 0 then β else 1) := by
-  have hq : (0 : ℝ) < q := Nat.cast_pos.2 (Nat.pos_of_ne_zero (NeZero.ne q))
-  unfold gh
-  rw [norm_mul, norm_inv, Complex.norm_natCast]
-  split_ifs with hx
-  · have htot : ∑ u, ψ (-(x * u)) = 0 := by
-      have := sum_psi_mul (q := q) (-x)
-      simp only [neg_eq_zero, hx, ↓reduceIte] at this
-      rw [← this]
-      refine Finset.sum_congr rfl fun u _ => ?_
-      congr 1
-      ring
-    have hs' : ∑ u ∈ s, ψ (-(x * u)) = -∑ u ∈ sᶜ, ψ (-(x * u)) := by
-      rw [eq_neg_iff_add_eq_zero, Finset.sum_add_sum_compl, htot]
-    have hb : ‖∑ u ∈ s, ψ (-(x * u))‖ ≤ (q : ℝ) - s.card := by
-      rw [hs', norm_neg]
-      refine (norm_sum_le _ _).trans ?_
-      have hle : s.card ≤ q := by simpa [ZMod.card] using s.card_le_univ
-      simp only [AddChar.norm_apply, Finset.sum_const, nsmul_eq_mul, mul_one,
-        Finset.card_compl, ZMod.card]
-      rw [Nat.cast_sub hle]
-    calc (q : ℝ)⁻¹ * ‖∑ u ∈ s, ψ (-(x * u))‖ ≤ (q : ℝ)⁻¹ * ((q : ℝ) - s.card) := by gcongr
-      _ ≤ (q : ℝ)⁻¹ * (β * s.card) := by gcongr
-      _ = _ := by ring
-  · push Not at hx
-    subst hx
-    simp only [zero_mul, neg_zero, AddChar.map_zero_eq_one, Finset.sum_const, nsmul_eq_mul,
-      mul_one, Complex.norm_natCast]
-    rw [div_eq_inv_mul]
-
-variable {m : ℕ}
-
-/-- Fourier coefficient of the indicator of `Fintype.piFinset g`. -/
-noncomputable def Gh (g : Fin m → Finset (ZMod q)) (ξ : Fin m → ZMod q) : ℂ :=
-  ∏ r, gh (g r) (ξ r)
-
-lemma Gh_inv (g : Fin m → Finset (ZMod q)) (w : Fin m → ZMod q) :
-    ∑ ξ, Gh g ξ * ψ (ξ ⬝ᵥ w) = if w ∈ Fintype.piFinset g then 1 else 0 := by
-  have h1 : ∀ ξ : Fin m → ZMod q, Gh g ξ * ψ (ξ ⬝ᵥ w) = ∏ r, gh (g r) (ξ r) * ψ (ξ r * w r) := by
-    intro ξ
-    rw [Gh, dotProduct, psi_sum, ← Finset.prod_mul_distrib]
-  rw [Finset.sum_congr rfl fun ξ _ => h1 ξ,
-    ← Fintype.prod_sum (fun r x => gh (g r) x * ψ (x * w r))]
-  simp_rw [gh_inv]
-  rw [Fintype.prod_boole]
-  simp [Fintype.mem_piFinset]
-
-lemma Gh_zero (g : Fin m → Finset (ZMod q)) : Gh g 0 = ∏ r, ((g r).card : ℂ) / q := by
-  simp [Gh, gh_zero]
-
-lemma ind_sub_eq (g : Fin m → Finset (ZMod q)) (w : Fin m → ZMod q) :
-    (((if w ∈ Fintype.piFinset g then (1 : ℚ) else 0) - ∏ r, ((g r).card : ℚ) / q : ℚ) : ℂ)
-      = ∑ ξ ∈ univ.erase 0, Gh g ξ * ψ (ξ ⬝ᵥ w) := by
-  rw [Finset.sum_erase_eq_sub (mem_univ _), Gh_inv, Gh_zero]
-  simp only [zero_dotProduct, AddChar.map_zero_eq_one, mul_one]
-  split_ifs <;> push_cast <;> ring
-
-lemma Gh_norm (g : Fin m → Finset (ZMod q)) (β : ℝ)
-    (hs : ∀ r, (q : ℝ) - (g r).card ≤ β * (g r).card) (ξ : Fin m → ZMod q) :
-    ‖Gh g ξ‖ ≤ (∏ r, ((g r).card : ℝ) / q) * β ^ (univ.filter fun r => ξ r ≠ 0).card := by
-  rw [Gh, norm_prod]
-  calc ∏ r, ‖gh (g r) (ξ r)‖
-      ≤ ∏ r, (((g r).card : ℝ) / q * (if ξ r ≠ 0 then β else 1)) :=
-        Finset.prod_le_prod₀ (fun _ _ => norm_nonneg _) (fun r _ => gh_norm _ β (hs r) _)
-    _ = _ := by
-        rw [Finset.prod_mul_distrib, Finset.prod_ite, Finset.prod_const_one, mul_one,
-          Finset.prod_const]
-
-/-- Averaging a character composed with an additive map over a finite group. -/
-lemma sum_char_hom {P : Type*} [Fintype P] [AddCommGroup P] (χ : P →+ ZMod q) :
-    ∑ a, ψ (χ a) = if (∀ a, χ a = 0) then (Fintype.card P : ℂ) else 0 := by
-  split_ifs with h
-  · simp [h]
-  · push Not at h
-    obtain ⟨a0, ha0⟩ := h
-    let Ψ : AddChar P ℂ := AddChar.compAddMonoidHom ψ χ
-    have hne : Ψ ≠ 0 := by
-      intro h0
-      apply ha0
-      apply ZMod.injective_stdAddChar
-      rw [AddChar.map_zero_eq_one]
-      have := DFunLike.congr_fun h0 a0
-      simpa [Ψ] using this
-    simpa [Ψ] using AddChar.sum_eq_zero_iff_ne_zero.2 hne
-
-end Fourier
-
-/-- **Covariance bound.** All quantities are rational. -/
-theorem cov_le {q : ℕ} [Fact q.Prime] {m : ℕ} {P : Type*} [Fintype P] [AddCommGroup P]
-    (φ φ' : P →+ (Fin m → ZMod q)) (g : Fin m → Finset (ZMod q))
-    (_hg : ∀ r, (g r).Nonempty) (β : ℚ) (_hβ : 0 ≤ β)
-    (hbad : ∀ r, ((q : ℚ) - (g r).card) ≤ β * (g r).card) :
-    |(∑ a : P, ((if φ a ∈ Fintype.piFinset g then (1 : ℚ) else 0) - ∏ r, ((g r).card : ℚ) / q) *
-        ((if φ' a ∈ Fintype.piFinset g then (1 : ℚ) else 0) - ∏ r, ((g r).card : ℚ) / q))
-        / Fintype.card P|
-      ≤ (∏ r, ((g r).card : ℚ) / q) ^ 2 *
-        ∑ ξ ∈ univ.erase (0 : Fin m → ZMod q), ∑ ξ' ∈ univ.erase (0 : Fin m → ZMod q),
-          if (∀ a, ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a = 0) then
-            β ^ ((univ.filter fun r => ξ r ≠ 0).card + (univ.filter fun r => ξ' r ≠ 0).card)
-          else 0 := by
-  have : NeZero q := ⟨(Fact.out : q.Prime).ne_zero⟩
-  set ψ : AddChar (ZMod q) ℂ := ZMod.stdAddChar with hψ
-  set E : Finset (Fin m → ZMod q) := univ.erase 0 with hE
-  set μR : ℝ := ∏ r, ((g r).card : ℝ) / q with hμR
-  set X : ℚ := (∑ a : P, ((if φ a ∈ Fintype.piFinset g then (1 : ℚ) else 0) -
-      ∏ r, ((g r).card : ℚ) / q) * ((if φ' a ∈ Fintype.piFinset g then (1 : ℚ) else 0) -
-      ∏ r, ((g r).card : ℚ) / q)) / Fintype.card P with hX
-  have hP : (Fintype.card P : ℂ) ≠ 0 := Nat.cast_ne_zero.2 Fintype.card_ne_zero
-  -- the additive map whose triviality is tested
-  let χ : (Fin m → ZMod q) → (Fin m → ZMod q) → P →+ ZMod q := fun ξ ξ' =>
-    AddMonoidHom.mk' (fun a => ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a) (by
-      intro a b
-      simp only [map_add, dotProduct_add]
-      abel)
-  -- Fourier expansion of `X`
-  have hXC : (X : ℂ) = ∑ ξ ∈ E, ∑ ξ' ∈ E,
-      if (∀ a, ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a = 0) then Gh g ξ * Gh g ξ' else 0 := by
-    rw [hX, Rat.cast_div, Rat.cast_sum, Rat.cast_natCast]
-    simp_rw [Rat.cast_mul, ind_sub_eq]
-    rw [div_eq_iff hP]
-    have h1 : ∀ a : P, (∑ ξ ∈ E, Gh g ξ * ψ (ξ ⬝ᵥ φ a)) * (∑ ξ' ∈ E, Gh g ξ' * ψ (ξ' ⬝ᵥ φ' a))
-        = ∑ ξ ∈ E, ∑ ξ' ∈ E, Gh g ξ * Gh g ξ' * ψ (χ ξ ξ' a) := by
-      intro a
-      rw [Finset.sum_mul_sum]
-      refine Finset.sum_congr rfl fun ξ _ => Finset.sum_congr rfl fun ξ' _ => ?_
-      change _ = _ * ψ (ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a)
-      rw [AddChar.map_add_eq_mul]
-      ring
-    rw [Finset.sum_congr rfl fun a _ => h1 a, Finset.sum_comm, Finset.sum_mul]
-    refine Finset.sum_congr rfl fun ξ _ => ?_
-    rw [Finset.sum_comm, Finset.sum_mul]
-    refine Finset.sum_congr rfl fun ξ' _ => ?_
-    rw [← Finset.mul_sum, sum_char_hom (χ ξ ξ')]
-    change _ * (if (∀ a, ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a = 0) then _ else _) = _
-    split_ifs <;> ring
-  -- bound
-  have hbadR : ∀ r, (q : ℝ) - (g r).card ≤ (β : ℝ) * (g r).card := by
-    intro r
-    exact_mod_cast hbad r
-  have hnorm : ‖(X : ℂ)‖ ≤ ∑ ξ ∈ E, ∑ ξ' ∈ E,
-      if (∀ a, ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a = 0) then
-        μR ^ 2 * (β : ℝ) ^ ((univ.filter fun r => ξ r ≠ 0).card +
-          (univ.filter fun r => ξ' r ≠ 0).card)
-      else 0 := by
-    rw [hXC]
-    refine (norm_sum_le _ _).trans (Finset.sum_le_sum fun ξ _ => ?_)
-    refine (norm_sum_le _ _).trans (Finset.sum_le_sum fun ξ' _ => ?_)
-    split_ifs
-    · rw [norm_mul, pow_add]
-      have h1 := Gh_norm g (β : ℝ) hbadR ξ
-      have h2 := Gh_norm g (β : ℝ) hbadR ξ'
-      calc ‖Gh g ξ‖ * ‖Gh g ξ'‖
-          ≤ (μR * (β : ℝ) ^ (univ.filter fun r => ξ r ≠ 0).card) *
-            (μR * (β : ℝ) ^ (univ.filter fun r => ξ' r ≠ 0).card) :=
-            mul_le_mul h1 h2 (norm_nonneg _) ((norm_nonneg _).trans h1)
-        _ = _ := by ring
-    · simp
-  have habs : ((|X| : ℚ) : ℝ) = ‖(X : ℂ)‖ := by
-    rw [Rat.cast_abs, ← Complex.ofReal_ratCast, Complex.norm_real, Real.norm_eq_abs]
-  have hfinal : ((|X| : ℚ) : ℝ) ≤ (((∏ r, ((g r).card : ℚ) / q) ^ 2 *
-        ∑ ξ ∈ E, ∑ ξ' ∈ E,
-          if (∀ a, ξ ⬝ᵥ φ a + ξ' ⬝ᵥ φ' a = 0) then
-            β ^ ((univ.filter fun r => ξ r ≠ 0).card + (univ.filter fun r => ξ' r ≠ 0).card)
-          else 0 : ℚ) : ℝ) := by
-    rw [habs]
-    refine hnorm.trans (le_of_eq ?_)
-    rw [Rat.cast_mul, Rat.cast_sum, Finset.mul_sum]
-    refine Finset.sum_congr rfl fun ξ _ => ?_
-    rw [Rat.cast_sum, Finset.mul_sum]
-    refine Finset.sum_congr rfl fun ξ' _ => ?_
-    split_ifs
-    · push_cast
-      rfl
-    · simp
-  exact_mod_cast hfinal
-
-end AltR0
-
-end FourierPart
 
 section AltR0Part
 
@@ -2247,171 +1993,12 @@ lemma prob_deg_ge {ζ : Fin n → ZMod q} (hζ : Function.Injective ζ) {lo : Fi
     rw [Finset.sum_congr rfl fun Z hZ => by rw [(Finset.mem_powersetCard.mp hZ).2], sum_const,
       Finset.card_powersetCard, card_univ, Fintype.card_fin, nsmul_eq_mul]
 
-/-! ## Weighted count of test vectors supported on few slots -/
-
-section Weights
-variable {K : ℕ}
-
-/-- Coefficient support of a test vector. -/
-def supp (ξ : Fin (K * n) → ZMod q) : Finset (Fin (K * n)) := univ.filter fun r => ξ r ≠ 0
-
-/-- All dual coordinates outside the slot set `S` vanish. -/
-def DualIn (ζ : Fin n → ZMod q) (S : Finset (Fin n)) (ξ : Fin (K * n) → ZMod q) : Prop :=
-  ∀ i k, k ∉ S → dual ζ ξ i k = 0
-
-instance (ζ : Fin n → ZMod q) (S : Finset (Fin n)) : DecidablePred (DualIn (K := K) ζ S) :=
-  fun ξ => by unfold DualIn; infer_instance
-
-lemma ext_restrict (ξ : Fin (K * n) → ZMod q) (T : Finset (Fin (K * n))) (h : supp ξ ⊆ T) :
-    ext T (fun r : T => ξ r) = ξ := by
-  funext r
-  unfold RejOrder.ext
-  split_ifs with hr
-  · rfl
-  · by_contra hne
-    exact hr (h (Finset.mem_filter.mpr ⟨Finset.mem_univ _, Ne.symm hne⟩))
-
-/-- Nonzero test vectors with support exactly `T ≠ ∅` and duals in `S` are at most
-`|suppIn1 T S| - 1`. -/
-lemma card_fiber_le (ζ : Fin n → ZMod q) (S : Finset (Fin n)) (T : Finset (Fin (K * n)))
-    (hT : T.Nonempty) :
-    ((univ : Finset (Fin (K * n) → ZMod q)).filter fun ξ => supp ξ = T ∧ DualIn ζ S ξ).card + 1
-      ≤ (suppIn1 ζ T S).card := by
-  set F := (univ : Finset (Fin (K * n) → ZMod q)).filter fun ξ => supp ξ = T ∧ DualIn ζ S ξ
-  have hmaps : ∀ ξ ∈ F, (fun r : T => ξ r) ∈ (suppIn1 ζ T S).erase 0 := by
-    intro ξ hξ
-    obtain ⟨hs, hd⟩ := (Finset.mem_filter.mp hξ).2
-    refine Finset.mem_erase.mpr ⟨fun h0 => ?_, (mem_suppIn1 T S _).mpr fun i k hk => ?_⟩
-    · obtain ⟨r, hr⟩ := hT
-      have := congrFun h0 ⟨r, hr⟩
-      rw [← hs] at hr
-      exact (Finset.mem_filter.mp hr).2 this
-    · rw [ext_restrict ξ T hs.le]; exact hd i k hk
-  have hinj : Set.InjOn (fun ξ (r : T) => ξ r) (F : Set (Fin (K * n) → ZMod q)) := by
-    intro ξ hξ ξ' hξ' he
-    have h1 := (Finset.mem_filter.mp (Finset.mem_coe.mp hξ)).2.1
-    have h2 := (Finset.mem_filter.mp (Finset.mem_coe.mp hξ')).2.1
-    rw [← ext_restrict ξ T h1.le, ← ext_restrict ξ' T h2.le]
-    exact congrArg (RejOrder.ext T) he
-  have h0 : (0 : T → ZMod q) ∈ suppIn1 ζ T S := by
-    refine (mem_suppIn1 T S _).mpr fun i k _ => ?_
-    have : RejOrder.ext T (0 : T → ZMod q) = 0 := by funext r; simp [RejOrder.ext]
-    rw [this]; unfold dual; rw [show blk (0 : Fin (K * n) → ZMod q) i = 0 from rfl,
-      Matrix.mulVec_zero]; rfl
-  have := Finset.card_le_card_of_injOn _ hmaps hinj
-  rw [Finset.card_erase_of_mem h0] at this
-  have hpos : 0 < (suppIn1 ζ T S).card := Finset.card_pos.mpr ⟨0, h0⟩
-  omega
-
-lemma xg_le (σ : ℕ) (T : Finset (Fin (K * n))) : xg n K σ T ≤ K * σ := by
-  unfold xg
-  calc ∑ i : Fin K, min (rowT T i).card (σ - cgap n (rowT T i)) ≤ ∑ _i : Fin K, σ :=
-        Finset.sum_le_sum fun i _ => (min_le_right _ _).trans (Nat.sub_le _ _)
-    _ = K * σ := by simp
-
-/-- **Weighted count.** `∑_{ξ ≠ 0, duals in S} β^wt(ξ) ≤ ∑_T β^|T| (q^xg − 1)`. -/
-lemma wsum_le {ζ : Fin n → ZMod q} (hζ : Function.Injective ζ) (hζ0 : ∀ k, ζ k ≠ 0)
-    {c : ZMod q} (hw : ∀ k, ζ k ^ n = c) (S : Finset (Fin n)) {β : ℚ} (hβ : 0 ≤ β) :
-    ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-        (if DualIn ζ S ξ then β ^ (supp ξ).card else 0)
-      ≤ ∑ T ∈ (univ : Finset (Fin (K * n))).powerset,
-          β ^ T.card * (((q : ℚ) ^ xg n K S.card T) - 1) := by
-  rw [← Finset.sum_fiberwise_of_maps_to (g := supp) (t := (univ : Finset (Fin (K * n))).powerset)
-    (fun ξ _ => Finset.mem_powerset.mpr (Finset.subset_univ _))]
-  refine Finset.sum_le_sum fun T _ => ?_
-  have hq1 : (1 : ℚ) ≤ (q : ℚ) ^ xg n K S.card T := one_le_pow₀ (by
-    exact_mod_cast Nat.one_le_iff_ne_zero.mpr (NeZero.ne q))
-  rw [Finset.sum_filter]
-  have heq : ∀ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-      (if supp ξ = T then (if DualIn ζ S ξ then β ^ (supp ξ).card else 0) else 0)
-        = β ^ T.card * (if supp ξ = T ∧ DualIn ζ S ξ then 1 else 0) := by
-    intro ξ _
-    by_cases h1 : supp ξ = T <;> by_cases h2 : DualIn ζ S ξ <;> simp [h1, h2]
-  rw [Finset.sum_congr rfl heq, ← Finset.mul_sum, Finset.sum_boole]
-  rcases T.eq_empty_or_nonempty with hT | hT
-  · -- support ∅ means ξ = 0, excluded
-    have : ((univ : Finset (Fin (K * n) → ZMod q)).erase 0).filter
-        (fun ξ => supp ξ = T ∧ DualIn ζ S ξ) = ∅ := by
-      refine Finset.filter_false_of_mem fun ξ hξ h => ?_
-      apply (Finset.mem_erase.mp hξ).1
-      funext r
-      by_contra hne
-      have : r ∈ supp ξ := Finset.mem_filter.mpr ⟨Finset.mem_univ _, hne⟩
-      rw [h.1, hT] at this; exact absurd this (Finset.notMem_empty r)
-    rw [this, Finset.card_empty, Nat.cast_zero, mul_zero]
-    exact mul_nonneg (pow_nonneg hβ _) (by linarith)
-  · refine mul_le_mul_of_nonneg_left ?_ (pow_nonneg hβ _)
-    have h1 := card_fiber_le ζ S T hT
-    have h2 := card_suppIn1_le_xg hζ hζ0 hw T S
-    have h3 : (((univ : Finset (Fin (K * n) → ZMod q)).erase 0).filter
-        fun ξ => supp ξ = T ∧ DualIn ζ S ξ).card
-        ≤ ((univ : Finset (Fin (K * n) → ZMod q)).filter
-          fun ξ => supp ξ = T ∧ DualIn ζ S ξ).card :=
-      Finset.card_le_card (Finset.filter_subset_filter _ (Finset.erase_subset _ _))
-    have : ((((univ : Finset (Fin (K * n) → ZMod q)).erase 0).filter
-        fun ξ => supp ξ = T ∧ DualIn ζ S ξ).card : ℚ) + 1 ≤ (q : ℚ) ^ xg n K S.card T := by
-      exact_mod_cast (by omega : _ + 1 ≤ q ^ xg n K S.card T)
-    linarith
-
-end Weights
 
 /-! ## The second moment of `ρ(t)` over the matrix -/
 
 section Main
 open Matrix
 variable {K : ℕ}
-
-/-- Values of one coordinate of `w` that pass the r₀ check. -/
-def good (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (r : Fin (K * n)) : Finset (ZMod q) :=
-  univ.filter fun x => ¬ ((γ₂ : ℤ) - β ≤ |lowBits q γ₂ x - v r|)
-
-lemma card_good {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ}
-    (hv : Bounded β v) (r : Fin (K * n)) :
-    (good (q := q) γ₂ β v r).card = mb * (2 * (γ₂ - β) - 1) := by
-  have h1 := Finset.card_filter_add_card_filter_not (s := (univ : Finset (ZMod q)))
-    (fun x => (γ₂ : ℤ) - β ≤ |lowBits q γ₂ x - v r|)
-  rw [fail_card hp (v r) (hv r), Finset.card_univ, ZMod.card] at h1
-  have := pass_le_q hp
-  unfold good; omega
-
-/-- `a ↦ A·y` as an additive map. -/
-def phiHom {ζ : Fin n → ZMod q} {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)}
-    (h : IsNTTMul ζ mulmat) (y : Fin (L * n) → ZMod q) :
-    (Fin K → Fin L → Fin n → ZMod q) →+ (Fin (K * n) → ZMod q) where
-  toFun a := modMat mulmat a *ᵥ y
-  map_zero' := by
-    have h0 := modMat_add (K := K) (L := L) mulmat h.add 0 0
-    rw [add_zero] at h0
-    have : modMat (K := K) (L := L) mulmat 0 = 0 := by
-      have := congrArg (· - modMat (K := K) (L := L) mulmat 0) h0
-      simpa using this.symm
-    rw [this, Matrix.zero_mulVec]
-  map_add' a b := by
-    rw [modMat_add mulmat h.add, Matrix.add_mulVec]
-
-/-- An orthogonal pair of test vectors has its dual coordinates on the degenerate slots. -/
-lemma dualIn_of_orth {ζ : Fin n → ZMod q}
-    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
-    (y y' : Fin (L * n) → ℤ) (ξ ξ' : Fin (K * n) → ZMod q)
-    (horth : ∀ a, ξ ⬝ᵥ phiHom h (zc y) a + ξ' ⬝ᵥ phiHom h (zc y') a = 0) :
-    DualIn ζ (degS ζ y y') ξ ∧ DualIn ζ (degS ζ y y') ξ' := by
-  have hs := slot_of_orth h ξ ξ' (zc y) (zc y') (fun a => by
-    have := horth a
-    simp only [dotProduct, phiHom, AddMonoidHom.coe_mk, ZeroHom.coe_mk] at this
-    exact this)
-  have key : ∀ i k, k ∉ degS ζ y y' → dual ζ ξ i k = 0 ∧ dual ζ ξ' i k = 0 := by
-    intro i k hk
-    by_contra hne
-    apply hk
-    refine Finset.mem_filter.mpr ⟨Finset.mem_univ _, dual ζ ξ i k, dual ζ ξ' i k, ?_,
-      fun j => hs i j k⟩
-    by_contra h2; push Not at h2; exact hne h2
-  exact ⟨fun i k hk => (key i k hk).1, fun i k hk => (key i k hk).2⟩
-
-/-- The empty slot set admits no nonzero test vector. -/
-lemma dualIn_empty {ζ : Fin n → ZMod q} (hζ : Function.Injective ζ) (ξ : Fin (K * n) → ZMod q)
-    (h : DualIn ζ ∅ ξ) : ξ = 0 :=
-  eq_zero_of_dual hζ ξ fun i => funext fun k => h i k (Finset.notMem_empty k)
 
 /-- `(Pr_B[P] - μ)² = E_{b,b'} (1_P b - μ)(1_P b' - μ)`. -/
 lemma sq_prob {α : Type*} (B : Finset α) (hB : B.Nonempty) (P : α → Prop) [DecidablePred P]
@@ -2628,15 +2215,6 @@ def EN (e e₂ q n K Bd D d s : ℕ) : ℕ :=
       (s + 1)
     + sumF (fun t => if s < t then Bd ^ t * D ^ (K * n - t) * (chooseC (K * n) t * (q ^ (K * d) - 1))
       else 0) (K * n + 1)
-
-lemma sum_card_split {m : ℕ} (F : Finset (Fin m) → ℚ) :
-    ∑ T ∈ (univ : Finset (Fin m)).powerset, F T
-      = ∑ t ∈ range (m + 1), ∑ T ∈ (univ : Finset (Fin m)).powersetCard t, F T := by
-  rw [← sum_idx_card m F]
-  congr 1
-  ext T
-  simp only [Finset.mem_filter, Finset.mem_powerset, Finset.subset_univ, true_and]
-  exact ⟨fun _ => by simpa using Finset.card_le_univ T, fun _ => trivial⟩
 
 /-- **The weighted count is at most `EN / D^(K n)`.** -/
 lemma wcount_le_EN {n K : ℕ} (hn : 0 < n) (e e₂ q Bd D d s : ℕ) (hq : 1 ≤ q) (hD : 0 < D)
@@ -4002,88 +3580,6 @@ theorem pair_sum_le {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMo
 
 end Pair
 
-/-! ## The weighted count by rows
-
-The `b`-weighted sum over coordinate sets factors over the `K` rows, so it is the `K`-th power of
-a row sum, which `row_sum_le` bounds by the gap counts `GBk`. No truncation in `|T|` is needed. -/
-
-section Rows
-
-/-- Integer form: `(∑_u Bd^u D^(n-u) GBk_u)^K − (D + Bd)^(K n)`. -/
-def ENr (e q n K Bd D d : ℕ) : ℕ :=
-  (sumF (fun u => Bd ^ u * D ^ (n - u) * GBk e q n 1 d u) (n + 1)) ^ K - (D + Bd) ^ (K * n)
-
-/-- **The weighted count is at most `ENr / D^(K n)`.** -/
-lemma wcount_le_rows {n K : ℕ} (hn : 0 < n) (e q Bd D d : ℕ) (hq : 1 ≤ q) (hD : 0 < D) :
-    ∑ T ∈ (univ : Finset (Fin (K * n))).powerset,
-        ((Bd : ℚ) / D) ^ T.card * (((q : ℚ) ^ xg n K d T) - 1)
-      ≤ (ENr e q n K Bd D d : ℚ) / (D : ℚ) ^ (K * n) := by
-  have hD' : (0 : ℚ) < D := by exact_mod_cast hD
-  set b : ℚ := (Bd : ℚ) / D
-  have hb : 0 ≤ b := by positivity
-  set g : Finset (Fin n) → ℚ := fun U => b ^ U.card * (q : ℚ) ^ min U.card (d - cgap n U)
-  -- the sum over `T` factors over rows
-  have hfac : ∑ T ∈ (univ : Finset (Fin (K * n))).powerset, b ^ T.card * (q : ℚ) ^ xg n K d T
-      = (∑ U : Finset (Fin n), g U) ^ K := by
-    rw [Finset.powerset_univ]
-    have hT : ∀ T : Finset (Fin (K * n)), b ^ T.card * (q : ℚ) ^ xg n K d T
-        = ∏ i, g (rowT T i) := by
-      intro T
-      simp only [g, Finset.prod_mul_distrib, Finset.prod_pow_eq_pow_sum, sum_rowT, xg]
-    simp_rw [hT]
-    rw [← Fintype.sum_equiv rowEquiv.symm (fun V => ∏ i, g (V i)) _ (fun V => by
-      simp only [rowEquiv, Equiv.coe_fn_symm_mk]
-      congr 1; funext i; congr 1
-      exact congrFun (rowEquiv.right_inv V) i |>.symm ▸ rfl)]
-    rw [show (∑ U, g U) ^ K = ∏ _i : Fin K, ∑ U, g U by simp, Finset.prod_univ_sum,
-      Fintype.piFinset_univ]
-  have hg0 : ∀ U, 0 ≤ g U := fun U => by positivity
-  have hrow : ∑ U : Finset (Fin n), g U
-      ≤ ∑ u ∈ range (n + 1), b ^ u * (GBk e q n 1 d u : ℚ) := by
-    rw [← Finset.powerset_univ, sum_card_split]
-    refine Finset.sum_le_sum fun u _ => ?_
-    have h1 : ∑ U ∈ (univ : Finset (Fin n)).powersetCard u, g U
-        = b ^ u * ((∑ U ∈ (univ : Finset (Fin n)).powersetCard u,
-            q ^ (1 * min u (d - cgap n U)) : ℕ) : ℚ) := by
-      push_cast
-      rw [Finset.mul_sum]
-      refine Finset.sum_congr rfl fun U hU => ?_
-      simp only [g, (Finset.mem_powersetCard.mp hU).2, one_mul]
-    rw [h1]
-    exact mul_le_mul_of_nonneg_left (by exact_mod_cast row_sum_le e q 1 d u hq hn) (by positivity)
-  have hall : ∑ T ∈ (univ : Finset (Fin (K * n))).powerset, b ^ T.card = (b + 1) ^ (K * n) := by
-    have := Finset.sum_pow_mul_eq_add_pow b (1 : ℚ) (univ : Finset (Fin (K * n)))
-    simpa using this
-  have hlhs : ∑ T ∈ (univ : Finset (Fin (K * n))).powerset, b ^ T.card * (((q : ℚ) ^ xg n K d T) - 1)
-      = (∑ U : Finset (Fin n), g U) ^ K - (b + 1) ^ (K * n) := by
-    simp only [mul_sub, mul_one, Finset.sum_sub_distrib, hfac, hall]
-  have hS : (sumF (fun u => Bd ^ u * D ^ (n - u) * GBk e q n 1 d u) (n + 1) : ℚ)
-      = (D : ℚ) ^ n * ∑ u ∈ range (n + 1), b ^ u * (GBk e q n 1 d u : ℚ) := by
-    rw [sumF_eq]; push_cast
-    rw [Finset.mul_sum]
-    refine Finset.sum_congr rfl fun u hu => ?_
-    have hu' : u ≤ n := Nat.lt_succ_iff.mp (Finset.mem_range.mp hu)
-    rw [show (D : ℚ) ^ n = (D : ℚ) ^ u * (D : ℚ) ^ (n - u) by rw [← pow_add]; congr 1; omega]
-    simp only [b, div_pow]; field_simp
-  have hE : ((sumF (fun u => Bd ^ u * D ^ (n - u) * GBk e q n 1 d u) (n + 1) : ℕ) : ℚ) ^ K
-        - (((D + Bd) ^ (K * n) : ℕ) : ℚ) ≤ (ENr e q n K Bd D d : ℚ) := by
-    have := cast_sub_le_of ((sumF (fun u => Bd ^ u * D ^ (n - u) * GBk e q n 1 d u) (n + 1)) ^ K)
-      ((D + Bd) ^ (K * n)) _ le_rfl
-    push_cast at this ⊢; exact this
-  rw [hlhs, le_div_iff₀ (by positivity)]
-  refine le_trans ?_ hE
-  rw [hS]; push_cast
-  have hpow : ((D : ℚ) ^ n * ∑ u ∈ range (n + 1), b ^ u * (GBk e q n 1 d u : ℚ)) ^ K
-      = (∑ u ∈ range (n + 1), b ^ u * (GBk e q n 1 d u : ℚ)) ^ K * (D : ℚ) ^ (K * n) := by
-    rw [mul_pow, ← pow_mul, mul_comm n K]; ring
-  have hDB : ((D : ℚ) + Bd) ^ (K * n) = (b + 1) ^ (K * n) * (D : ℚ) ^ (K * n) := by
-    rw [← mul_pow]; congr 1; simp only [b]; field_simp; ring
-  rw [hpow, hDB, ← sub_mul]
-  refine mul_le_mul_of_nonneg_right ?_ (by positivity)
-  have := pow_le_pow_left₀ (Finset.sum_nonneg fun U _ => hg0 U) hrow K
-  linarith
-
-end Rows
 
 /-! ## The sharper second moment -/
 
@@ -4625,10 +4121,6 @@ end Sharp
 section SharpFinal
 variable {ζ : Fin n → ZMod q}
 
-lemma sumF_ite_Icc (dm : ℕ) (f : ℕ → ℚ) :
-    ∑ x ∈ range (dm + 1), (if 1 ≤ x then f x else 0) = ∑ d ∈ Icc 1 dm, f d := by
-  rw [← Finset.sum_filter]
-  exact Finset.sum_congr (by ext d; simp [Finset.mem_Icc]; omega) fun d _ => rfl
 
 open Classical in
 /-- **Relative second moment, sharper.** -/
@@ -5690,7 +5182,7 @@ def tailOf (γ₁ : ℕ) (h₀ : Fin L) (y : Fin L → V γ₁ n) : Fin L → Fi
 def r0 (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β : ℕ)
     (v : C → Fin (K * n) → ℤ) (a : Fin K → Fin L → Fin n → ZMod q) (y : Fin L → V γ₁ n)
     (c : C) : Bool :=
-  decide (modMat mulmat a *ᵥ zc (flat γ₁ y) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c)))
+  decide (modMat mulmat a *ᵥ zc (flat γ₁ y) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c)))
 
 /-- The z check `‖y + c·s₁‖∞ < γ₁ − β`, with `u c = c·s₁`. -/
 def zok (γ₁ β : ℕ) (u : C → Fin (L * n) → ℤ) (y : Fin L → V γ₁ n) (c : C) : Bool :=
@@ -5818,7 +5310,7 @@ lemma rhoC_eq (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) 
     (a : Fin K → Fin L → Fin n → ZMod q) (t : Fin L → Fin n → ℤ) :
     AltR0.rhoC mulmat γ₂ β v lo w h₀ a t =
       (∑ x ∈ AltR0.hbox lo w, if modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈
-        Fintype.piFinset (AltR0.good γ₂ β v) then (1 : ℚ) else 0) / (AltR0.hbox lo w).card := by
+        Fintype.piFinset (RejOrder.good γ₂ β v) then (1 : ℚ) else 0) / (AltR0.hbox lo w).card := by
   unfold AltR0.rhoC RejOrder.prob
   rw [sum_boole]
 
@@ -5834,7 +5326,7 @@ lemma rho_eq [Nonempty (V γ₁ n)] (mulmat : (Fin n → ZMod q) → Matrix (Fin
   unfold Bathwater.AltR0Set.rho
   set T := tailOf γ₁ h₀ y
   rw [sum_split' h₀ (fun x t => ∑ c, if t = T ∧
-        modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c))
+        modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c))
         then (1 : ℚ) else 0)]
   swap
   · intro y'
@@ -5842,9 +5334,9 @@ lemma rho_eq [Nonempty (V γ₁ n)] (mulmat : (Fin n → ZMod q) → Matrix (Fin
     congr 1
     simp only [r0, decide_eq_true_eq, flat_eq h₀ y', T, tailOf_eq_iff]
   have e2 : ∀ x ∈ box γ₁ n, (∑ t ∈ AltR0.tbox γ₁ h₀, ∑ c, if t = T ∧
-        modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c))
+        modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c))
         then (1 : ℚ) else 0) = ∑ c, if modMat mulmat a *ᵥ zc (AltR0.join h₀ x T) ∈
-          Fintype.piFinset (AltR0.good γ₂ β (v c)) then (1 : ℚ) else 0 := by
+          Fintype.piFinset (RejOrder.good γ₂ β (v c)) then (1 : ℚ) else 0 := by
     intro x _
     rw [sum_comm]
     refine sum_congr rfl fun c _ => ?_
@@ -5870,8 +5362,8 @@ lemma mu_pos {γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) : 0 < mu q γ
   positivity
 
 lemma mu_eq {γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ} (hv : Bounded β v) :
-    ∏ r, ((AltR0.good (q := q) γ₂ β v r).card : ℚ) / q = mu q γ₂ β mb K n := by
-  simp only [AltR0.card_good hp hv, prod_const, card_univ, Fintype.card_fin, mu]
+    ∏ r, ((RejOrder.good (q := q) γ₂ β v r).card : ℚ) / q = mu q γ₂ β mb K n := by
+  simp only [RejOrder.card_good hp hv, prod_const, card_univ, Fintype.card_fin, mu]
 
 lemma X_nonneg (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₂ β mb : ℕ)
     (v : C → Fin (K * n) → ℤ) (h₀ : Fin L) (a : Fin K → Fin L → Fin n → ZMod q) :
@@ -6038,7 +5530,7 @@ lemma count_ge [Nonempty (V γ₁ n)] (mulmat : (Fin n → ZMod q) → Matrix (F
   have hμ : 0 < μ := mu_pos hp
   set Z := AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)
   set P : (Fin n → ℤ) → (Fin L → Fin n → ℤ) → Prop := fun x t =>
-    modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c))
+    modMat mulmat a *ᵥ zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c))
   set ρ : (Fin L → Fin n → ℤ) → ℚ := fun t =>
     AltR0.rhoC mulmat γ₂ β (v c) (zlo γ₁ β h₀ (u c)) (zw γ₁ β) h₀ a t
   have hZpos : (0 : ℚ) < Z.card := by
@@ -6470,7 +5962,7 @@ end General
 section MLDSA44
 
 lemma mu_eq_44 {v : Fin (4 * 256) → ℤ} (hv : Bounded 78 v) :
-    ∏ r, ((AltR0.good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417 =
+    ∏ r, ((RejOrder.good (q := 8380417) 95232 78 v r).card : ℚ) / 8380417 =
       mu 8380417 95232 78 44 4 256 :=
   mu_eq params_mldsa44 hv
 
@@ -6583,7 +6075,7 @@ end MLDSA44
 section MLDSA65
 
 lemma mu_eq_65 {v : Fin (6 * 256) → ℤ} (hv : Bounded 196 v) :
-    ∏ r, ((AltR0.good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417 =
+    ∏ r, ((RejOrder.good (q := 8380417) 261888 196 v r).card : ℚ) / 8380417 =
       mu 8380417 261888 196 16 6 256 :=
   mu_eq params_mldsa65 hv
 
@@ -6696,7 +6188,7 @@ end MLDSA65
 section MLDSA87
 
 lemma mu_eq_87 {v : Fin (8 * 256) → ℤ} (hv : Bounded 120 v) :
-    ∏ r, ((AltR0.good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417 =
+    ∏ r, ((RejOrder.good (q := 8380417) 261888 120 v r).card : ℚ) / 8380417 =
       mu 8380417 261888 120 16 8 256 :=
   mu_eq params_mldsa87 hv
 
@@ -7185,622 +6677,6 @@ end
 
 end MinEntropyPart
 
-section RejOrderFourierPart
-
-/-!
-# The RejOrder leak via the product-Fourier bound
-
-`RejOrder.leak` (the per-attempt leak of circl's check order) bounded on average over `A` without
-Bonferroni truncation. Every view of an attempt is a difference of prefix-pass product sets
-`P_i = ∏_{r<i} good_r × ∏_{r≥i} univ` (`leak_le_Dev`), so `cov_le` applies to each; pairs of
-nonces are independent, so a degenerate slot has probability `(q+1)/(2γ₁)^L` (`deg_card_prob`), and
-the weighted counts are bounded by rows (`wcount_le_rows`). Result (`leak_mldsa44_fourier` etc.):
-`E_A leak ≤ 2^-405, 2^-547, 2^-729` for ML-DSA-44/65/87, against `2^-289, 2^-418, 2^-568` for
-`RejOrder.leak_mldsa44` etc.
--/
-
-open Finset Matrix
-
-noncomputable section
-
-namespace RejFourier
-open RejOrder AltR0
-
-variable {q : ℕ} [NeZero q] [Fact q.Prime] {n K L : ℕ}
-
-/-- Coordinates before `i` must pass the r₀ check, the others are free. -/
-def gset (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) (r : Fin (K * n)) : Finset (ZMod q) :=
-  if (r : ℕ) < i then good γ₂ β v r else univ
-
-/-- The prefix-pass set: the first `i` coordinates of `w` pass the r₀ check. -/
-def Pset (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : Finset (Fin (K * n) → ZMod q) :=
-  Fintype.piFinset (gset (q := q) γ₂ β v i)
-
-/-- Density of the prefix-pass set. -/
-def muP (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : ℚ :=
-  ∏ r, ((gset (q := q) γ₂ β v i r).card : ℚ) / q
-
-/-- Deviation of `Pr[y ∈ B' ∧ A·y ∈ P_i]` from `Pr[B'] · |P_i|/q^m`, `y` uniform on the box. -/
-def Dev (mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)) (γ₁ γ₂ β : ℕ)
-    (v : Fin (K * n) → ℤ) (i : ℕ) (B' : Finset (Fin (L * n) → ℤ))
-    (a : Fin K → Fin L → Fin n → ZMod q) : ℚ :=
-  |((B'.filter fun y => modMat mulmat a *ᵥ zc y ∈ Pset (q := q) γ₂ β v i).card : ℚ)
-      / (box γ₁ (L * n)).card
-    - (B'.card : ℚ) / (box γ₁ (L * n)).card * muP (q := q) γ₂ β v i|
-
-lemma muP_nonneg (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : 0 ≤ muP (q := q) γ₂ β v i :=
-  Finset.prod_nonneg fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _)
-
-lemma muP_le_one (γ₂ β : ℕ) (v : Fin (K * n) → ℤ) (i : ℕ) : muP (q := q) γ₂ β v i ≤ 1 := by
-  refine Finset.prod_le_one₀ (fun r _ => div_nonneg (Nat.cast_nonneg _) (Nat.cast_nonneg _))
-    fun r _ => ?_
-  have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
-  rw [div_le_one hq]
-  exact_mod_cast (Finset.card_le_univ _).trans (by rw [ZMod.card])
-
-/-- **Second moment of `Dev`.** For any sub-event `B'` of the box and any `i`,
-`E_A Dev² ≤ ∑_{d ≤ d_m} C(n,d) ρ^d E_b(d)² + C(n, d_m+1) ρ^(d_m+1)`,
-`ρ = (q+1)/(2γ₁)^L` the probability of a degenerate slot for independent `y, y'`. -/
-theorem Dsq_le {ζ : Fin n → ZMod q}
-    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
-    {γ₁ γ₂ β : ℕ} {v : Fin (K * n) → ℤ} (hγ1 : 0 < γ₁) (hγ : 2 * γ₁ ≤ q)
-    (B' : Finset (Fin (L * n) → ℤ)) (hB' : B' ⊆ box γ₁ (L * n)) (i : ℕ)
-    (bt : ℚ) (hbt : 0 ≤ bt)
-    (hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card)
-    (dm : ℕ) (Eb : ℕ → ℚ)
-    (hEb : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm →
-      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0) ≤ Eb S.card) :
-    avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2)
-      ≤ ∑ d ∈ Icc 1 dm, (n.choose d * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ d) * Eb d ^ 2
-        + n.choose (dm + 1) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ (dm + 1) := by
-  set μ := muP (q := q) γ₂ β v i with hμdef
-  have hμ0 : 0 ≤ μ := muP_nonneg γ₂ β v i
-  have hμ1 : μ ≤ 1 := muP_le_one γ₂ β v i
-  set Bx := box γ₁ (L * n)
-  have hBx : (0 : ℚ) < Bx.card := by
-    rw [card_box_nat]; have : 0 < 2 * γ₁ := by omega
-    positivity
-  have hgset : ∀ r, ((q : ℚ) - (gset (q := q) γ₂ β v i r).card)
-      ≤ bt * (gset (q := q) γ₂ β v i r).card := by
-    intro r; unfold gset
-    split_ifs
-    · exact hbad r
-    · rw [card_univ, ZMod.card, sub_self]; positivity
-  have hgne : ∀ r, (gset (q := q) γ₂ β v i r).Nonempty := by
-    intro r
-    by_contra hne
-    rw [Finset.not_nonempty_iff_eq_empty] at hne
-    have := hgset r
-    rw [hne, Finset.card_empty, Nat.cast_zero, mul_zero, sub_zero] at this
-    have hq : (0 : ℚ) < q := by exact_mod_cast Nat.pos_of_ne_zero (NeZero.ne q)
-    linarith
-  -- the centred indicator
-  set X : (Fin K → Fin L → Fin n → ZMod q) → (Fin (L * n) → ℤ) → ℚ := fun a y =>
-    (if phiHom h (zc y) a ∈ Fintype.piFinset (gset (q := q) γ₂ β v i) then (1 : ℚ) else 0) - μ
-    with hX
-  have hDev : ∀ a, Dev mulmat γ₁ γ₂ β v i B' a ^ 2
-      = (∑ y ∈ B', ∑ y' ∈ B', X a y * X a y') / (Bx.card : ℚ) ^ 2 := by
-    intro a
-    have e : ((B'.filter fun y => modMat mulmat a *ᵥ zc y ∈ Pset (q := q) γ₂ β v i).card : ℚ)
-        / Bx.card - (B'.card : ℚ) / Bx.card * μ = (∑ y ∈ B', X a y) / Bx.card := by
-      simp only [hX]
-      rw [Finset.sum_sub_distrib, Finset.sum_boole, Finset.sum_const, nsmul_eq_mul]
-      rw [sub_div]
-      congr 1
-      ring
-    unfold Dev
-    rw [← hμdef, e, sq_abs, div_pow, sq, Finset.sum_mul_sum]
-  -- per-pair bound
-  set D : (Fin (L * n) → ℤ) × (Fin (L * n) → ℤ) → ℕ := fun yy => (degS ζ yy.1 yy.2).card
-  set Hf : ℕ → ℚ := fun d => ∑ e ∈ Icc 1 dm, (if e ≤ d then Eb e ^ 2 else 0)
-    + (if dm + 1 ≤ d then 1 else 0)
-  have hHf0 : ∀ d, 0 ≤ ∑ e ∈ Icc 1 dm, (if e ≤ d then Eb e ^ 2 else 0) :=
-    fun d => Finset.sum_nonneg fun e _ => by split_ifs <;> positivity
-  have hP : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
-    exact_mod_cast Fintype.card_pos
-  have hX1 : ∀ a y y', X a y * X a y' ≤ 1 := by
-    intro a y y'
-    simp only [hX]
-    have hb : ∀ P : Prop, [Decidable P] → |(if P then (1 : ℚ) else 0) - μ| ≤ 1 := by
-      intro P _; split_ifs <;> rw [abs_le] <;> constructor <;> linarith
-    calc _ ≤ |_ * _| := le_abs_self _
-      _ = _ := abs_mul _ _
-      _ ≤ 1 * 1 := mul_le_mul (hb _) (hb _) (abs_nonneg _) zero_le_one
-      _ = 1 := one_mul 1
-  have hcov : ∀ yy : (Fin (L * n) → ℤ) × (Fin (L * n) → ℤ),
-      |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
-        ≤ Hf (D yy) := by
-    intro yy
-    set Ew : ℚ := ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-      (if DualIn ζ (degS ζ yy.1 yy.2) ξ then bt ^ (supp ξ).card else 0) with hEw
-    have hEw0 : 0 ≤ Ew := Finset.sum_nonneg fun ξ _ => by split_ifs <;> positivity
-    have hc := cov_le (phiHom h (zc yy.1)) (phiHom h (zc yy.2)) (gset (q := q) γ₂ β v i) hgne
-      bt hbt hgset
-    have hpair : (∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-        ∑ ξ' ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-          if (∀ a, ξ ⬝ᵥ phiHom h (zc yy.1) a + ξ' ⬝ᵥ phiHom h (zc yy.2) a = 0) then
-            bt ^ ((univ.filter fun r => ξ r ≠ 0).card + (univ.filter fun r => ξ' r ≠ 0).card)
-          else 0) ≤ Ew ^ 2 := by
-      rw [sq, hEw, Finset.sum_mul_sum]
-      refine Finset.sum_le_sum fun ξ _ => Finset.sum_le_sum fun ξ' _ => ?_
-      split_ifs with ho h1 h2 h2 h1 h2 h2
-      · rw [pow_add]; rfl
-      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).2 h2
-      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
-      · exact absurd (dualIn_of_orth h _ _ ξ ξ' ho).1 h1
-      all_goals first | positivity | simp
-    have hmain : |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
-        ≤ Ew ^ 2 := by
-      refine hc.trans ?_
-      calc μ ^ 2 * _ ≤ 1 * Ew ^ 2 := by
-            refine mul_le_mul (by nlinarith) hpair (Finset.sum_nonneg fun _ _ =>
-              Finset.sum_nonneg fun _ _ => by split_ifs <;> positivity) zero_le_one
-        _ = Ew ^ 2 := one_mul _
-    have htriv : |(∑ a, X a yy.1 * X a yy.2) / Fintype.card (Fin K → Fin L → Fin n → ZMod q)|
-        ≤ 1 := by
-      rw [abs_div, abs_of_pos hP, div_le_iff₀ hP, one_mul]
-      refine (Finset.abs_sum_le_sum_abs _ _).trans ?_
-      calc ∑ a, |X a yy.1 * X a yy.2| ≤ ∑ _a : Fin K → Fin L → Fin n → ZMod q, (1 : ℚ) := by
-            refine Finset.sum_le_sum fun a _ => ?_
-            simp only [hX]
-            rw [abs_mul]
-            have hb : ∀ P : Prop, [Decidable P] → |(if P then (1 : ℚ) else 0) - μ| ≤ 1 := by
-              intro P _; split_ifs <;> rw [abs_le] <;> constructor <;> linarith
-            calc _ ≤ 1 * 1 := mul_le_mul (hb _) (hb _) (abs_nonneg _) zero_le_one
-              _ = 1 := one_mul 1
-        _ = _ := by simp
-    rcases Nat.eq_zero_or_pos (D yy) with hD | hD
-    · have : Ew = 0 := by
-        refine Finset.sum_eq_zero fun ξ hξ => ?_
-        rw [if_neg]
-        intro hd
-        have hS : degS ζ yy.1 yy.2 = ∅ := Finset.card_eq_zero.mp hD
-        rw [hS] at hd
-        exact (Finset.mem_erase.mp hξ).1 (dualIn_empty h.inj ξ hd)
-      rw [this] at hmain
-      refine hmain.trans ?_
-      simp only [Hf]
-      linarith [hHf0 (D yy), (show (0:ℚ) ≤ if dm + 1 ≤ D yy then 1 else 0 by
-        split_ifs <;> norm_num), (show (0:ℚ) ^ 2 = 0 by norm_num)]
-    · by_cases hdm : D yy ≤ dm
-      · have hE := hEb _ hD hdm
-        refine hmain.trans ?_
-        have h1 : Ew ^ 2 ≤ Eb (D yy) ^ 2 := pow_le_pow_left₀ hEw0 hE 2
-        refine h1.trans ?_
-        simp only [Hf]
-        have := Finset.single_le_sum (f := fun e => if e ≤ D yy then Eb e ^ 2 else 0)
-          (fun e _ => by split_ifs <;> positivity) (Finset.mem_Icc.mpr ⟨hD, hdm⟩)
-        simp only [le_refl, if_true] at this
-        linarith [(show (0:ℚ) ≤ if dm + 1 ≤ D yy then 1 else 0 by split_ifs <;> norm_num)]
-      · refine htriv.trans ?_
-        simp only [Hf, if_pos (by omega : dm + 1 ≤ D yy)]
-        linarith [hHf0 (D yy)]
-  -- average over `a`, then over pairs
-  have hprobs : ∀ e, (((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ) / (Bx ×ˢ Bx).card
-      ≤ n.choose e * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e := by
-    intro e
-    have := deg_card_prob (L := L) h.inj hγ1 hγ e
-    unfold prob at this
-    refine this.trans (le_of_eq ?_)
-    rw [div_pow, ← pow_mul, mul_comm L e]; ring
-  have hBB : ((Bx ×ˢ Bx).card : ℚ) = (Bx.card : ℚ) ^ 2 := by rw [card_product]; push_cast; ring
-  have hsplit : ∑ yy ∈ Bx ×ˢ Bx, Hf (D yy)
-      = ∑ e ∈ Icc 1 dm, Eb e ^ 2 * (((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ)
-        + (((Bx ×ˢ Bx).filter fun yy => dm + 1 ≤ D yy).card : ℚ) := by
-    simp only [Hf, Finset.sum_add_distrib]
-    rw [Finset.sum_comm]
-    congr 1
-    · refine Finset.sum_congr rfl fun e _ => ?_
-      rw [← Finset.sum_filter, Finset.sum_const, nsmul_eq_mul, mul_comm]
-    · rw [Finset.sum_boole]
-  have hBsub : B' ×ˢ B' ⊆ Bx ×ˢ Bx := Finset.product_subset_product hB' hB'
-  calc avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2)
-      = (∑ yy ∈ B' ×ˢ B', (∑ a, X a yy.1 * X a yy.2)
-          / Fintype.card (Fin K → Fin L → Fin n → ZMod q)) / (Bx.card : ℚ) ^ 2 := by
-        unfold avg
-        simp_rw [hDev]
-        have e1 : ∑ a : Fin K → Fin L → Fin n → ZMod q,
-            (∑ y ∈ B', ∑ y' ∈ B', X a y * X a y') / (Bx.card : ℚ) ^ 2
-            = (∑ y ∈ B', ∑ y' ∈ B', ∑ a, X a y * X a y') / (Bx.card : ℚ) ^ 2 := by
-          rw [← Finset.sum_div]; congr 1
-          rw [Finset.sum_comm]
-          exact Finset.sum_congr rfl fun y _ => Finset.sum_comm
-        have e2 : ∑ yy ∈ B' ×ˢ B', (∑ a, X a yy.1 * X a yy.2)
-            / (Fintype.card (Fin K → Fin L → Fin n → ZMod q) : ℚ)
-            = (∑ y ∈ B', ∑ y' ∈ B', ∑ a, X a y * X a y')
-              / (Fintype.card (Fin K → Fin L → Fin n → ZMod q) : ℚ) := by
-          rw [Finset.sum_product, Finset.sum_div]
-          exact Finset.sum_congr rfl fun y _ => by rw [Finset.sum_div]
-        rw [e1, e2]; ring
-    _ ≤ (∑ yy ∈ Bx ×ˢ Bx, Hf (D yy)) / (Bx.card : ℚ) ^ 2 := by
-        refine div_le_div_of_nonneg_right ?_ (by positivity)
-        calc _ ≤ ∑ yy ∈ B' ×ˢ B', |(∑ a, X a yy.1 * X a yy.2)
-                / Fintype.card (Fin K → Fin L → Fin n → ZMod q)| :=
-              Finset.sum_le_sum fun yy _ => le_abs_self _
-          _ ≤ ∑ yy ∈ Bx ×ˢ Bx, |(∑ a, X a yy.1 * X a yy.2)
-                / Fintype.card (Fin K → Fin L → Fin n → ZMod q)| :=
-              Finset.sum_le_sum_of_subset_of_nonneg hBsub fun _ _ _ => abs_nonneg _
-          _ ≤ _ := Finset.sum_le_sum fun yy _ => hcov yy
-    _ = ∑ e ∈ Icc 1 dm, Eb e ^ 2 * ((((Bx ×ˢ Bx).filter fun yy => e ≤ D yy).card : ℚ)
-          / (Bx ×ˢ Bx).card)
-        + (((Bx ×ˢ Bx).filter fun yy => dm + 1 ≤ D yy).card : ℚ) / (Bx ×ˢ Bx).card := by
-        rw [hsplit, hBB, add_div, Finset.sum_div]
-        congr 1
-        refine Finset.sum_congr rfl fun e _ => ?_
-        ring
-    _ ≤ _ := by
-        refine add_le_add (Finset.sum_le_sum fun e _ => ?_) (hprobs (dm + 1))
-        rw [show ((n.choose e : ℚ) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e) * Eb e ^ 2
-            = Eb e ^ 2 * ((n.choose e : ℚ) * (((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L) ^ e) by ring]
-        exact mul_le_mul_of_nonneg_left (hprobs e) (sq_nonneg _)
-
-/-! ## The leak in terms of `Dev` -/
-
-lemma one_sub_pR {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) :
-    1 - pR q γ₂ β mb = ((mb * (2 * (γ₂ - β) - 1) : ℕ) : ℚ) / q := by
-  have h1 := hp.β_lt_γ₂
-  unfold pR
-  rw [sub_sub_cancel]
-  push_cast [Nat.cast_sub (by omega : 1 ≤ 2 * (γ₂ - β)), Nat.cast_sub h1.le]
-  ring
-
-lemma muP_eq {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ}
-    (hv : Bounded β v) (i : ℕ) (hi : i ≤ K * n) :
-    muP (q := q) γ₂ β v i = (1 - pR q γ₂ β mb) ^ i := by
-  have hq : (q : ℚ) ≠ 0 := by exact_mod_cast NeZero.ne q
-  unfold muP gset
-  have : ∀ r : Fin (K * n), ((if (r : ℕ) < i then good (q := q) γ₂ β v r else univ).card : ℚ) / q
-      = if (r : ℕ) < i then 1 - pR q γ₂ β mb else 1 := by
-    intro r
-    split_ifs
-    · rw [card_good hp hv r, one_sub_pR hp]
-    · rw [card_univ, ZMod.card, div_self hq]
-  simp_rw [this]
-  rw [Finset.prod_ite, Finset.prod_const_one, mul_one, Finset.prod_const]
-  congr 1
-  rw [Fin.card_filter_val_lt]
-  omega
-
-variable {m l : ℕ}
-
-lemma Pset_iff {γ₂ β : ℕ} (M : Matrix (Fin (K * n)) (Fin l) (ZMod q)) (v : Fin (K * n) → ℤ)
-    (y : Fin l → ℤ) (i : ℕ) :
-    M *ᵥ (fun k => (y k : ZMod q)) ∈ Pset (q := q) γ₂ β v i
-      ↔ ∀ r : Fin (K * n), (r : ℕ) < i → ¬ rFails q γ₂ β M v y r := by
-  simp only [Pset, gset, Fintype.mem_piFinset]
-  refine forall_congr' fun r => ?_
-  split_ifs with hr
-  · simp [good, rFails, wOf, hr]
-  · simp [hr]
-
-/-- **The leak is a sum of prefix deviations.** `rFail i` is "pass on the first `i`, not on the
-first `i+1`", and `zFail j` is "`y ∈ Bset j` and pass everywhere". -/
-theorem leak_le_Dev {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)}
-    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {u : Fin (L * n) → ℤ} {v : Fin (K * n) → ℤ}
-    (hu : Bounded β u) (hv : Bounded β v) (a : Fin K → Fin L → Fin n → ZMod q) :
-    leak q γ₁ γ₂ β mb (modMat mulmat a) u v
-      ≤ ∑ i : Fin (K * n), (Dev mulmat γ₁ γ₂ β v i (box γ₁ (L * n)) a
-          + Dev mulmat γ₁ γ₂ β v (i + 1) (box γ₁ (L * n)) a)
-        + ∑ j : Fin (L * n), Dev mulmat γ₁ γ₂ β v (K * n) (Bset γ₁ β u j) a := by
-  set M := modMat (K := K) (L := L) mulmat a
-  set Bx := box γ₁ (L * n)
-  set F : ℕ → Finset (Fin (L * n) → ℤ) := fun k =>
-    Bx.filter fun y => M *ᵥ zc y ∈ Pset (q := q) γ₂ β v k
-  have hBx : (0 : ℚ) < Bx.card := by
-    have := hp.β_lt_γ₁
-    rw [card_box_nat]; have : 0 < 2 * γ₁ := by omega
-    positivity
-  have hDevBx : ∀ k, Dev mulmat γ₁ γ₂ β v k Bx a
-      = |((F k).card : ℚ) / Bx.card - muP (q := q) γ₂ β v k| := by
-    intro k; unfold Dev; rw [div_self hBx.ne', one_mul]
-  unfold leak
-  refine add_le_add (Finset.sum_le_sum fun i _ => ?_) (Finset.sum_le_sum fun j _ => ?_)
-  · -- `rFail i`
-    have hsub : F (i + 1) ⊆ F i := by
-      intro y hy
-      obtain ⟨hyB, hy'⟩ := Finset.mem_filter.mp hy
-      refine Finset.mem_filter.mpr ⟨hyB, ?_⟩
-      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff] at hy' ⊢
-      exact fun r hr => hy' r (by omega)
-    have hev : (Bx.filter fun y => view q γ₁ γ₂ β M u v y = .rFail i) = F i \ F (i + 1) := by
-      ext y
-      simp only [Finset.mem_filter, Finset.mem_sdiff, F]
-      rw [view_eq_rFail, I, firstIdx_eq_some]
-      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff, Pset_iff]
-      constructor
-      · rintro ⟨hy, hfi, hlt⟩
-        refine ⟨⟨hy, fun r hr => hlt r (Fin.lt_def.mpr hr)⟩, fun h => ?_⟩
-        exact (h.2 i (by omega)) hfi
-      · rintro ⟨⟨hy, hpre⟩, hnot⟩
-        refine ⟨hy, ?_, fun r hr => hpre r (Fin.lt_def.mp hr)⟩
-        by_contra hfi
-        apply hnot ⟨hy, fun r hr => ?_⟩
-        rcases Nat.lt_succ_iff_lt_or_eq.mp hr with h1 | h1
-        · exact hpre r h1
-        · have : r = i := Fin.ext h1
-          rw [this]; exact hfi
-    have hprob : prob Bx (fun y => view q γ₁ γ₂ β M u v y = .rFail i)
-        = ((F i).card : ℚ) / Bx.card - ((F (i + 1)).card : ℚ) / Bx.card := by
-      unfold prob
-      rw [hev, Finset.card_sdiff_of_subset hsub, Nat.cast_sub (Finset.card_le_card hsub), sub_div]
-    have hgeom : geom (pR q γ₂ β mb) (K * n) (some i)
-        = muP (q := q) γ₂ β v i - muP (q := q) γ₂ β v (i + 1) := by
-      rw [muP_eq hp hv i (by omega), muP_eq hp hv (i + 1) (by omega)]
-      simp only [geom]; ring
-    rw [hprob, hgeom, hDevBx, hDevBx]
-    calc |((F i).card : ℚ) / Bx.card - ((F (i + 1)).card : ℚ) / Bx.card
-          - (muP (q := q) γ₂ β v i - muP (q := q) γ₂ β v (i + 1))|
-        = |(((F i).card : ℚ) / Bx.card - muP (q := q) γ₂ β v i)
-          - (((F (i + 1)).card : ℚ) / Bx.card - muP (q := q) γ₂ β v (i + 1))| := by ring_nf
-      _ ≤ _ := abs_sub _ _
-  · -- `zFail j`
-    have hev : (Bx.filter fun y => view q γ₁ γ₂ β M u v y = .zFail j)
-        = (Bset γ₁ β u j).filter fun y => M *ᵥ zc y ∈ Pset (q := q) γ₂ β v (K * n) := by
-      ext y
-      simp only [Finset.mem_filter, Bset]
-      rw [view_eq_zFail, I, firstIdx_eq_none]
-      rw [show zc y = fun k => (y k : ZMod q) from rfl, Pset_iff]
-      constructor
-      · rintro ⟨hy, hI, hJ⟩; exact ⟨⟨hy, hJ⟩, fun r _ => hI r⟩
-      · rintro ⟨⟨hy, hJ⟩, hP⟩; exact ⟨hy, fun r => hP r r.2, hJ⟩
-    have hJ := J_dist hp u hu (some j)
-    have href : geom (pZ γ₁ β) (L * n) (some j) * geom (pR q γ₂ β mb) (K * n) none
-        = ((Bset γ₁ β u j).card : ℚ) / Bx.card * muP (q := q) γ₂ β v (K * n) := by
-      rw [← hJ, muP_eq hp hv (K * n) le_rfl]
-      simp only [geom]
-      unfold prob; rfl
-    unfold prob
-    rw [hev, href]
-    unfold Dev
-    exact le_rfl
-
-/-! ## Averaging over the matrix -/
-
-/-- The integer inequality checked by the kernel: `ρ = rn/rd`, `E_b(d) = ENr / Dc^(Kn)`. -/
-def numR (e q n K Bd Dc rn rd dm : ℕ) : ℕ :=
-  sumF (fun d => if 1 ≤ d then chooseC n d * rn ^ d * rd ^ (dm + 1 - d)
-      * ENr e q n K Bd Dc d ^ 2 else 0) (dm + 1)
-    + chooseC n (dm + 1) * rn ^ (dm + 1) * Dc ^ (2 * (K * n))
-
-/-- **Expected deviation.** If the kernel inequality holds with `2^(2j)`, then for every prefix
-length `i` and every sub-event `B'` of the box, `E_A Dev ≤ 2^-j`. -/
-theorem avg_Dev_le {ζ : Fin n → ZMod q}
-    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
-    {cz : ZMod q} (hwz : ∀ k, ζ k ^ n = cz) (hn : 0 < n)
-    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {v : Fin (K * n) → ℤ} (hv : Bounded β v)
-    (hγ : 2 * γ₁ ≤ q) (e dm j : ℕ)
-    (hnum : 2 ^ (2 * j) * numR e q n K (q - mb * (2 * (γ₂ - β) - 1)) (mb * (2 * (γ₂ - β) - 1))
-        (q + 1) ((2 * γ₁) ^ L) dm
-      ≤ ((2 * γ₁) ^ L) ^ (dm + 1) * (mb * (2 * (γ₂ - β) - 1)) ^ (2 * (K * n)))
-    (i : ℕ) (B' : Finset (Fin (L * n) → ℤ)) (hB' : B' ⊆ box γ₁ (L * n)) :
-    avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a) ≤ 1 / 2 ^ j := by
-  set Dc := mb * (2 * (γ₂ - β) - 1) with hDc
-  set Bd := q - Dc with hBd
-  have hDcq : Dc ≤ q := pass_le_q hp
-  have hDc0 : 0 < Dc := by
-    have h1 := hp.mb_pos; have h2 := hp.β_lt_γ₂
-    exact Nat.mul_pos h1 (by omega)
-  have hq1 : 1 ≤ q := Nat.one_le_iff_ne_zero.mpr (NeZero.ne q)
-  have hγ1 : 0 < γ₁ := lt_of_le_of_lt (Nat.zero_le _) hp.β_lt_γ₁
-  have hDc' : (0 : ℚ) < Dc := by exact_mod_cast hDc0
-  set bt : ℚ := (Bd : ℚ) / Dc
-  have hgood : ∀ r, ((good (q := q) γ₂ β v r).card : ℚ) = Dc := fun r => by
-    rw [card_good hp hv r]
-  have hbad : ∀ r, ((q : ℚ) - (good (q := q) γ₂ β v r).card) ≤ bt * (good (q := q) γ₂ β v r).card := by
-    intro r; rw [hgood]
-    simp only [bt, hBd]; rw [Nat.cast_sub hDcq]; field_simp; rfl
-  have hEb : ∀ S : Finset (Fin n), 1 ≤ S.card → S.card ≤ dm →
-      ∑ ξ ∈ (univ : Finset (Fin (K * n) → ZMod q)).erase 0,
-        (if DualIn ζ S ξ then bt ^ (supp ξ).card else 0)
-        ≤ (ENr e q n K Bd Dc S.card : ℚ) / (Dc : ℚ) ^ (K * n) :=
-    fun S _ _ => (wsum_le h.inj h.ne0 hwz S (by positivity)).trans
-      (wcount_le_rows hn e q Bd Dc S.card hq1 hDc0)
-  have hsq := Dsq_le (K := K) h (v := v) hγ1 hγ B' hB' i bt (by positivity) hbad dm
-    (fun d => (ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) hEb
-  -- the numeric side
-  set rd : ℕ := (2 * γ₁) ^ L
-  have hrd : (0 : ℚ) < rd := by positivity
-  have hρ : ((q : ℚ) + 1) / (2 * γ₁ : ℚ) ^ L = ((q + 1 : ℕ) : ℚ) / rd := by
-    simp only [rd]; push_cast; ring
-  rw [hρ] at hsq
-  set η : ℚ := 1 / 2 ^ j
-  have hη : 0 < η := by positivity
-  have hS : ∑ d ∈ Icc 1 dm, ((n.choose d : ℚ) * (((q + 1 : ℕ) : ℚ) / rd) ^ d)
-        * ((ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) ^ 2
-      + n.choose (dm + 1) * (((q + 1 : ℕ) : ℚ) / rd) ^ (dm + 1) ≤ η ^ 2 := by
-    have hnumQ := (Nat.cast_le (α := ℚ)).mpr hnum
-    unfold numR at hnumQ
-    rw [sumF_eq] at hnumQ
-    push_cast at hnumQ
-    simp only [Nat.cast_ite, Nat.cast_zero, chooseC_eq] at hnumQ
-    rw [sumF_ite_Icc] at hnumQ
-    have hDn : (0 : ℚ) < (Dc : ℚ) ^ (K * n) := by positivity
-    have hsplit : ∀ d, d ≤ dm + 1 → (rd : ℚ) ^ (dm + 1) = (rd : ℚ) ^ d * (rd : ℚ) ^ (dm + 1 - d) :=
-      fun d hd => by rw [← pow_add]; congr 1; omega
-    have hlhs : ∑ d ∈ Icc 1 dm, ((n.choose d : ℚ) * (((q + 1 : ℕ) : ℚ) / rd) ^ d)
-          * ((ENr e q n K Bd Dc d : ℚ) / (Dc : ℚ) ^ (K * n)) ^ 2
-        + n.choose (dm + 1) * (((q + 1 : ℕ) : ℚ) / rd) ^ (dm + 1)
-        = (∑ d ∈ Icc 1 dm, (n.choose d : ℚ) * ((q : ℚ) + 1) ^ d * (rd : ℚ) ^ (dm + 1 - d)
-            * (ENr e q n K Bd Dc d : ℚ) ^ 2
-          + (n.choose (dm + 1) : ℚ) * ((q : ℚ) + 1) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n)))
-          / ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n))) := by
-      rw [add_div, Finset.sum_div]
-      congr 1
-      · refine Finset.sum_congr rfl fun d hd => ?_
-        rw [hsplit d (by have := (Finset.mem_Icc.mp hd).2; omega)]
-        rw [show 2 * (K * n) = (K * n) * 2 by ring, pow_mul]
-        push_cast
-        simp only [div_pow]
-        field_simp
-        ring
-      · push_cast; rw [div_pow]; field_simp
-    rw [hlhs, div_le_iff₀ (by positivity)]
-    simp only [η, one_div, inv_pow]
-    rw [← pow_mul, mul_comm j 2]
-    rw [show ((2 : ℚ) ^ (2 * j))⁻¹ * ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n)))
-        = ((rd : ℚ) ^ (dm + 1) * (Dc : ℚ) ^ (2 * (K * n))) / 2 ^ (2 * j) by ring]
-    rw [le_div_iff₀ (by positivity)]
-    simp only [rd] at hnumQ ⊢
-    push_cast at hnumQ ⊢
-    linarith
-  have hsq' := hsq.trans hS
-  -- AM-GM pointwise
-  have hpt : ∀ x : ℚ, |x| ≤ (x ^ 2 / η + η) / 2 := by
-    intro x
-    have : 0 ≤ (|x| - η) ^ 2 / η := div_nonneg (sq_nonneg _) hη.le
-    rw [sub_sq, sq_abs] at this
-    have e1 : (x ^ 2 - 2 * |x| * η + η ^ 2) / η = x ^ 2 / η - 2 * |x| + η := by field_simp
-    linarith
-  calc avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a)
-      ≤ avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
-          (Dev mulmat γ₁ γ₂ β v i B' a ^ 2 / η + η) / 2) := by
-        refine avg_mono fun a => ?_
-        exact (le_abs_self _).trans (hpt (Dev mulmat γ₁ γ₂ β v i B' a))
-    _ = (avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a ^ 2) / η
-          + η) / 2 := by
-        unfold avg
-        rw [Finset.sum_div]
-        simp only [add_div, Finset.sum_add_distrib, Finset.sum_div, Finset.sum_const, card_univ,
-          nsmul_eq_mul]
-        have : (0 : ℚ) < Fintype.card (Fin K → Fin L → Fin n → ZMod q) := by
-          exact_mod_cast Fintype.card_pos
-        field_simp
-    _ ≤ (η ^ 2 / η + η) / 2 := by
-        have := div_le_div_of_nonneg_right hsq' hη.le
-        linarith
-    _ = η := by field_simp; ring
-
-/-- **The leak on average over the matrix**, by the product-Fourier bound:
-`E_A leak ≤ (2·K n + L n) / 2^j` whenever the kernel inequality holds with `2^(2j)`. -/
-theorem leak_avg_fourier {ζ : Fin n → ZMod q}
-    {mulmat : (Fin n → ZMod q) → Matrix (Fin n) (Fin n) (ZMod q)} (h : IsNTTMul ζ mulmat)
-    {cz : ZMod q} (hwz : ∀ k, ζ k ^ n = cz) (hn : 0 < n)
-    {γ₁ γ₂ β mb : ℕ} (hp : Params q γ₁ γ₂ β mb) {u : Fin (L * n) → ℤ} {v : Fin (K * n) → ℤ}
-    (hu : Bounded β u) (hv : Bounded β v) (hγ : 2 * γ₁ ≤ q) (e dm j : ℕ)
-    (hnum : 2 ^ (2 * j) * numR e q n K (q - mb * (2 * (γ₂ - β) - 1)) (mb * (2 * (γ₂ - β) - 1))
-        (q + 1) ((2 * γ₁) ^ L) dm
-      ≤ ((2 * γ₁) ^ L) ^ (dm + 1) * (mb * (2 * (γ₂ - β) - 1)) ^ (2 * (K * n))) :
-    avg (fun a : Fin K → Fin L → Fin n → ZMod q => leak q γ₁ γ₂ β mb (modMat mulmat a) u v)
-      ≤ (2 * (K * n) + L * n : ℕ) / 2 ^ j := by
-  have hD : ∀ i (B' : Finset (Fin (L * n) → ℤ)), B' ⊆ box γ₁ (L * n) →
-      avg (fun a : Fin K → Fin L → Fin n → ZMod q => Dev mulmat γ₁ γ₂ β v i B' a) ≤ 1 / 2 ^ j :=
-    fun i B' hB' => avg_Dev_le h hwz hn hp hv hγ e dm j hnum i B' hB'
-  refine (avg_mono fun a => leak_le_Dev hp hu hv a).trans ?_
-  rw [avg_add, avg_finset_sum, avg_finset_sum]
-  have h1 : ∑ i : Fin (K * n), avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
-      Dev mulmat γ₁ γ₂ β v i (box γ₁ (L * n)) a + Dev mulmat γ₁ γ₂ β v (i + 1) (box γ₁ (L * n)) a)
-      ≤ ∑ _i : Fin (K * n), 2 * (1 / 2 ^ j : ℚ) := by
-    refine Finset.sum_le_sum fun i _ => ?_
-    rw [avg_add]
-    linarith [hD i _ subset_rfl, hD (i + 1) _ subset_rfl]
-  have h2 : ∑ jj : Fin (L * n), avg (fun a : Fin K → Fin L → Fin n → ZMod q =>
-      Dev mulmat γ₁ γ₂ β v (K * n) (Bset γ₁ β u jj) a) ≤ ∑ _jj : Fin (L * n), (1 / 2 ^ j : ℚ) :=
-    Finset.sum_le_sum fun jj _ => hD _ _ (Finset.filter_subset _ _)
-  refine (add_le_add h1 h2).trans (le_of_eq ?_)
-  simp only [Finset.sum_const, card_univ, Fintype.card_fin, nsmul_eq_mul]
-  push_cast; ring
-
-/-! ## ML-DSA -/
-
-section MLDSA
-set_option maxRecDepth 100000
-
-/-- The kernel-checked inequality for ML-DSA-44. -/
-theorem numR_44 : 2 ^ (2 * 417) * numR 330 8380417 256 4 (8380417 - 44 * (2 * (95232 - 78) - 1))
-    (44 * (2 * (95232 - 78) - 1)) (8380417 + 1) ((2 * 2 ^ 17) ^ 4) 19
-  ≤ ((2 * 2 ^ 17) ^ 4) ^ (19 + 1) * (44 * (2 * (95232 - 78) - 1)) ^ (2 * (4 * 256)) := by
-  decide +kernel
-
-/-- **ML-DSA-44, product-Fourier route.** -/
-theorem leak_mldsa44_fourier {u : Fin (4 * 256) → ℤ} {v : Fin (4 * 256) → ℤ}
-    (hu : Bounded 78 u) (hv : Bounded 78 v) :
-    avg (fun A : Matrix (Fin 4) (Fin 4) Rq => leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) u v)
-      ≤ 1 / 2 ^ 405 := by
-  refine (avg_ringMat fun M => leak 8380417 (2 ^ 17) 95232 78 44 M u v).trans_le ?_
-  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa44 hu hv
-    (by norm_num) 330 19 417 numR_44).trans ?_
-  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
-    show 417 = 12 + 405 from rfl, pow_add]
-  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
-
-/-- The kernel-checked inequality for ML-DSA-65. -/
-theorem numR_65 : 2 ^ (2 * 560) * numR 330 8380417 256 6 (8380417 - 16 * (2 * (261888 - 196) - 1))
-    (16 * (2 * (261888 - 196) - 1)) (8380417 + 1) ((2 * 2 ^ 19) ^ 5) 20
-  ≤ ((2 * 2 ^ 19) ^ 5) ^ (20 + 1) * (16 * (2 * (261888 - 196) - 1)) ^ (2 * (6 * 256)) := by
-  decide +kernel
-
-/-- **ML-DSA-65, product-Fourier route.** -/
-theorem leak_mldsa65_fourier {u : Fin (5 * 256) → ℤ} {v : Fin (6 * 256) → ℤ}
-    (hu : Bounded 196 u) (hv : Bounded 196 v) :
-    avg (fun A : Matrix (Fin 6) (Fin 5) Rq => leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) u v)
-      ≤ 1 / 2 ^ 547 := by
-  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 196 16 M u v).trans_le ?_
-  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa65 hu hv
-    (by norm_num) 330 20 560 numR_65).trans ?_
-  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
-    show 560 = 13 + 547 from rfl, pow_add]
-  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
-
-/-- The kernel-checked inequality for ML-DSA-87. -/
-theorem numR_87 : 2 ^ (2 * 742) * numR 330 8380417 256 8 (8380417 - 16 * (2 * (261888 - 120) - 1))
-    (16 * (2 * (261888 - 120) - 1)) (8380417 + 1) ((2 * 2 ^ 19) ^ 7) 23
-  ≤ ((2 * 2 ^ 19) ^ 7) ^ (23 + 1) * (16 * (2 * (261888 - 120) - 1)) ^ (2 * (8 * 256)) := by
-  decide +kernel
-
-/-- **ML-DSA-87, product-Fourier route.** -/
-theorem leak_mldsa87_fourier {u : Fin (7 * 256) → ℤ} {v : Fin (8 * 256) → ℤ}
-    (hu : Bounded 120 u) (hv : Bounded 120 v) :
-    avg (fun A : Matrix (Fin 8) (Fin 7) Rq => leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) u v)
-      ≤ 1 / 2 ^ 729 := by
-  refine (avg_ringMat fun M => leak 8380417 (2 ^ 19) 261888 120 16 M u v).trans_le ?_
-  refine (leak_avg_fourier isNTTMul_mldsa zetaMLDSA_root (by norm_num) params_mldsa87 hu hv
-    (by norm_num) 330 23 742 numR_87).trans ?_
-  rw [div_le_div_iff₀ (by positivity) (by positivity), one_mul,
-    show 742 = 13 + 729 from rfl, pow_add]
-  exact mul_le_mul_of_nonneg_right (by norm_num) (by positivity)
-
-
-/-- **ML-DSA-44, many attempts**, with the product-Fourier leak bound (compare
-`RejOrder.bad_frac_mldsa44`). -/
-theorem bad_frac_mldsa44_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
-    (us : ι → Fin (4 * 256) → ℤ) (vs : ι → Fin (4 * 256) → ℤ)
-    (hus : ∀ i, Bounded 78 (us i)) (hvs : ∀ i, Bounded 78 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun A : Matrix (Fin 4) (Fin 4) Rq => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 17) 95232 78 44 (ringMat A) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Matrix (Fin 4) (Fin 4) Rq)
-      ≤ (∑ i, w i) * (1 / 2 ^ 405) / η :=
-  bad_frac (fun _ _ hu hv => leak_mldsa44_fourier hu hv) w hw us vs hus hvs hη
-
-/-- **ML-DSA-65, many attempts**, with the product-Fourier leak bound (compare
-`RejOrder.bad_frac_mldsa65`). -/
-theorem bad_frac_mldsa65_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
-    (us : ι → Fin (5 * 256) → ℤ) (vs : ι → Fin (6 * 256) → ℤ)
-    (hus : ∀ i, Bounded 196 (us i)) (hvs : ∀ i, Bounded 196 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun A : Matrix (Fin 6) (Fin 5) Rq => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 196 16 (ringMat A) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Matrix (Fin 6) (Fin 5) Rq)
-      ≤ (∑ i, w i) * (1 / 2 ^ 547) / η :=
-  bad_frac (fun _ _ hu hv => leak_mldsa65_fourier hu hv) w hw us vs hus hvs hη
-
-/-- **ML-DSA-87, many attempts**, with the product-Fourier leak bound (compare
-`RejOrder.bad_frac_mldsa87`). -/
-theorem bad_frac_mldsa87_fourier {ι : Type*} [Fintype ι] (w : ι → ℚ) (hw : ∀ i, 0 ≤ w i)
-    (us : ι → Fin (7 * 256) → ℤ) (vs : ι → Fin (8 * 256) → ℤ)
-    (hus : ∀ i, Bounded 120 (us i)) (hvs : ∀ i, Bounded 120 (vs i)) {η : ℚ} (hη : 0 < η) :
-    ((univ.filter fun A : Matrix (Fin 8) (Fin 7) Rq => η ≤ ∑ i, w i *
-        leak 8380417 (2 ^ 19) 261888 120 16 (ringMat A) (us i) (vs i)).card : ℚ)
-        / Fintype.card (Matrix (Fin 8) (Fin 7) Rq)
-      ≤ (∑ i, w i) * (1 / 2 ^ 729) / η :=
-  bad_frac (fun _ _ hu hv => leak_mldsa87_fourier hu hv) w hw us vs hus hvs hη
-
-end MLDSA
-
-end RejFourier
-
-end
-
-end RejOrderFourierPart
 
 section Alg3Part
 
@@ -8216,7 +7092,7 @@ lemma headDev_eq [Nonempty (V γ₁ n)]
   set T := tailOf γ₁ h₀ y'
   set Z := AltR0.hbox (zlo γ₁ β h₀ (u c)) (zw γ₁ β)
   set P : (Fin n → ℤ) → (Fin L → Fin n → ℤ) → Prop := fun x t =>
-    modMat mulmat a *ᵥ RejOrder.zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (AltR0.good γ₂ β (v c))
+    modMat mulmat a *ᵥ RejOrder.zc (AltR0.join h₀ x t) ∈ Fintype.piFinset (RejOrder.good γ₂ β (v c))
   have hZpos : (0 : ℚ) < Z.card := by
     rw [AltR0.card_hbox]; unfold zw
     have : 0 < 2 * (γ₁ - β) - 1 := by omega
