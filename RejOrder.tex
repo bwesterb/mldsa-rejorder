@@ -487,21 +487,25 @@ of the set at that position, at the frequency $\xi_t\in\Zq$. There are three cas
         this; we only use that it is at most $\theta$ times the density, like at a checked
         position. This makes the resulting bound the same for every $e$.
 \end{itemize}
-So $\hat P(0)=\mu$, and relative to it every nonzero coordinate of $\xi$ costs a factor
+By the first case $\hat P(0)=\mu$. By the other two, a factor with $\xi_t\ne0$ is at most
+$\theta = p_R/(1-p_R) \approx 2^{-10.25}$ times the density, its value at $\xi_t=0$. Multiplying
+over positions,
 \[
-  \theta = \frac{p_R}{1-p_R} \approx 2^{-10.25}:\qquad
   |\hat P(\xi)| \le \mu\,\theta^{\mathrm{wt}(\xi)},
 \]
-with $\mathrm{wt}(\xi)$ the number of nonzero coordinates. The $r_0$ check rarely fails, so
-$P$ is almost everything on each checked position, and all its Fourier weight beyond the constant
-term sits on frequencies with few nonzero coordinates.
+with $\mathrm{wt}(\xi)$ the number of nonzero coordinates. So we see that,
+because the $r_0$ check rarely fails, $\theta$ is small and the Fourier coefficients of $P$ decay
+quickly with the number of nonzero coordinates.
 
 \paragraph{Averaging over $A$.}
 Subtracting $\mu$ removes the term $\xi = 0$, so
-\[
-  C(y,y') = \sum_{\xi,\xi'\ne0}\hat P(\xi)\,\hat P(\xi')\;
-    \E_A\, e^{2\pi i\,(\xi\cdot Ay+\xi'\cdot Ay')/q}.
-\]
+\begin{align*}
+  C(y,y') &\equiv \E_A\bigl[(\mathbf 1[Ay\in P]-\mu)\,(\mathbf 1[Ay'\in P]-\mu)\bigr]\\
+          &= \E_A\Bigl[\Bigl(\sum_{\xi\ne0}\hat P(\xi)\,\psi_\xi(Ay)\Bigr)
+                       \Bigl(\sum_{\xi'\ne0}\hat P(\xi')\,\psi_{\xi'}(Ay')\Bigr)\Bigr]\\
+          &= \sum_{\xi,\xi'\ne0}\hat P(\xi)\,\hat P(\xi')\;
+             \E_A\, e^{2\pi i\,(\xi\cdot Ay+\xi'\cdot Ay')/q}.
+\end{align*}
 For fixed $y,y',\xi,\xi'$ the exponent $\Lambda(A) = \xi\cdot Ay+\xi'\cdot Ay'$ is an additive
 function of $A$ with values in $\Zq$. If it is not identically zero, it takes every value equally
 often and the average is $0$. If it is identically zero, the average is $1$. Call $(\xi,\xi')$ a
@@ -546,38 +550,37 @@ coefficients (\lean{avg\_ringMat}).
 \paragraph{Slot by slot.}
 In the NTT domain $w = Ay$ reads
 \[
-  \hat w_i(k) = \sum_{j<\ell} \hat a_{ij}(k)\,\hat y_j(k)\qquad(\text{polynomial $i$ of $w$, slot $k$}),
+  \hat w_i(k) = \sum_{j<\ell} \hat a_{ij}(k)\,\hat y_j(k)\qquad(\text{polynomial $i$ of $w$, slot $k$}).
 \]
-and for uniform $A$ the $\hat a_{ij}(k)$ are independent and uniform in $\Zq$. So at each slot
-$k$ and for each $i$, the pair $(\hat w_i(k),\hat w'_i(k))$ of $w=Ay$, $w'=Ay'$ is a random
-combination $\sum_j\hat a_{ij}(k)\,(\hat y_j(k),\hat y'_j(k))$, independently over $i$ and $k$.
-Compare the two vectors
-\[
-  \hat y(k) = (\hat y_j(k))_{j<\ell},\qquad \hat y'(k) = (\hat y'_j(k))_{j<\ell}\qquad\in\Zq^\ell .
-\]
-If they are linearly independent, the pair $(\hat w_i(k),\hat w'_i(k))$ is uniform on $\Zq^2$:
-at this slot $Ay$ and $Ay'$ look like two independent uniform values, and no linear relation can
-involve them. If they are linearly dependent, call the slot \emph{degenerate} for $(y,y')$; let
-$D(y,y')$ be the set of degenerate slots (\lean{degS}).
-
-\paragraph{Dual coordinates.}
-To make ``a relation involves a slot'' precise, write a frequency $\xi$ in coordinates dual to
-the NTT: on polynomial $i$,
+Since the NTT is a bijection, the $\hat a_{ij}(k)$ take all values in $\Zq$, independently, as
+$A$ ranges over $\Rq^{k\times\ell}$. To match, write a frequency $\xi$ in coordinates dual to the
+NTT: on polynomial $i$,
 \[
   \xi_{i,s} = \sum_k \zeta_k^s\,\tilde\xi_i(k),\qquad\text{so that}\qquad
   \xi\cdot w = \sum_{i,k}\tilde\xi_i(k)\,\hat w_i(k).
 \]
 This is always possible and $\tilde\xi$ is unique, since the Vandermonde matrix
 $(\zeta_k^s)_{s,k}$ is invertible (\lean{dual}). Then
-$\xi\cdot Ay + \xi'\cdot Ay'= \sum_{i,j,k}\hat a_{ij}(k)\,\bigl(\tilde\xi_i(k)\,\hat y_j(k)
-+\tilde\xi'_i(k)\,\hat y'_j(k)\bigr)$, and since the $\hat a_{ij}(k)$ are free, $(\xi,\xi')$ is a
-test vector exactly when
+\[
+  \xi\cdot Ay + \xi'\cdot Ay'= \sum_{i,j,k}\hat a_{ij}(k)\,\bigl(\tilde\xi_i(k)\,\hat y_j(k)
+  +\tilde\xi'_i(k)\,\hat y'_j(k)\bigr)
+\]
+is a linear form in the free $\hat a_{ij}(k)$. It vanishes for all $A$ exactly when all its
+coefficients do (take $A$ with a single nonzero $\hat a_{ij}(k)$), so $(\xi,\xi')$ is a test
+vector exactly when
 \[
   \tilde\xi_i(k)\,\hat y(k) + \tilde\xi'_i(k)\,\hat y'(k) = 0 \in \Zq^\ell
   \qquad\text{for all } i \text{ and } k
 \]
-(\lean{slot\_of\_orth}). At a slot that is not degenerate this forces
-$\tilde\xi_i(k)=\tilde\xi'_i(k)=0$. Hence:
+(\lean{slot\_of\_orth}), where $\hat y(k) = (\hat y_j(k))_{j<\ell}$ and likewise $\hat y'(k)$.
+
+\paragraph{Degenerate slots.}
+The slot equation is a linear relation between $\hat y(k)$ and $\hat y'(k)$. If these two vectors
+are linearly independent, it forces $\tilde\xi_i(k)=\tilde\xi'_i(k)=0$ for all $i$. Call slot $k$
+\emph{degenerate} for $(y,y')$ if they are linearly dependent, and let $D(y,y')$ be the set of
+degenerate slots (\lean{degS}). (Intuitively, at a slot that is not degenerate the pair
+$(\hat w_i(k),\hat w'_i(k))$ of $w=Ay$, $w'=Ay'$ is uniform on $\Zq^2$, so $Ay$ and $Ay'$ look
+independent there and no relation can involve the slot.) Hence:
 \begin{quote}
 \emph{$\xi$ and $\xi'$ have all their dual coordinates on the degenerate slots $D(y,y')$}
 (\lean{dualIn\_of\_orth}). \emph{If $D(y,y')=\emptyset$ there is no test vector}
